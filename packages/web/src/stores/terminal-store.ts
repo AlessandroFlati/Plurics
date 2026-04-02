@@ -37,11 +37,9 @@ export function initTerminalStore(ws: WebSocketClient): () => void {
         break;
       }
       case 'terminal:exited': {
-        const t = state.terminals.get(msg.terminalId);
-        if (t) {
-          t.status = 'exited';
-          emitChange();
-        }
+        state.terminals.delete(msg.terminalId);
+        state.outputListeners.delete(msg.terminalId);
+        emitChange();
         break;
       }
       case 'terminal:list': {

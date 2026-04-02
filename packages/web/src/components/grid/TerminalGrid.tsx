@@ -47,7 +47,7 @@ export function TerminalGrid({ terminals, ws }: TerminalGridProps) {
   return (
     <div className="terminal-grid">
       <div className="terminal-grid-toolbar">
-        <LayoutPresets onSelect={handlePresetSelect} />
+        <LayoutPresets selectedCols={gridCols} selectedRows={gridRows} onSelect={handlePresetSelect} />
       </div>
       <ReactGridLayout
         className="terminal-grid-layout"

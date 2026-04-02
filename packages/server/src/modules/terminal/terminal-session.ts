@@ -15,6 +15,7 @@ import {
 } from './types.js';
 
 type DataCallback = (data: string) => void;
+type ExitCallback = () => void;
 
 export class TerminalSession {
   readonly id: string;
@@ -26,6 +27,7 @@ export class TerminalSession {
   private readonly createdAt: number;
   private readonly tmux: TmuxManager;
   private readonly listeners: Set<DataCallback> = new Set();
+  private readonly exitListeners: Set<ExitCallback> = new Set();
   private pipeProcess: ChildProcess | null = null;
   private pipePath: string | null = null;
   private exitPoller: ReturnType<typeof setInterval> | null = null;
@@ -102,6 +104,11 @@ export class TerminalSession {
   onData(callback: DataCallback): () => void {
     this.listeners.add(callback);
     return () => this.listeners.delete(callback);
+  }
+
+  onExit(callback: ExitCallback): () => void {
+    this.exitListeners.add(callback);
+    return () => this.exitListeners.delete(callback);
   }
 
   async resize(cols: number, rows: number): Promise<void> {
@@ -192,6 +199,9 @@ export class TerminalSession {
           this.status = 'exited';
           this.stopExitPoller();
           this.stopPipeOutput();
+          for (const cb of this.exitListeners) {
+            cb();
+          }
         }
       } catch {
         // ignore

@@ -81,7 +81,8 @@ describe('End-to-end integration', () => {
     expect(output.type).toBe('terminal:output');
 
     send(ws, { type: 'terminal:kill', terminalId });
-    const exited = await waitFor(ws, m => m.type === 'terminal:exited');
+    // Kill sends graceful exit commands; exit poller checks every 2s
+    const exited = await waitFor(ws, m => m.type === 'terminal:exited', 10000);
     expect(exited.type).toBe('terminal:exited');
 
     ws.close();

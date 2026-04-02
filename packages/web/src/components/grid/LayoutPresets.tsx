@@ -1,4 +1,6 @@
 interface LayoutPresetsProps {
+  selectedCols: number;
+  selectedRows: number;
   onSelect: (cols: number, rows: number) => void;
 }
 
@@ -10,26 +12,29 @@ const PRESETS = [
   { label: '3x3', cols: 3, rows: 3 },
 ];
 
-export function LayoutPresets({ onSelect }: LayoutPresetsProps) {
+export function LayoutPresets({ selectedCols, selectedRows, onSelect }: LayoutPresetsProps) {
   return (
     <div style={{ display: 'flex', gap: 4 }}>
-      {PRESETS.map((p) => (
-        <button
-          key={p.label}
-          onClick={() => onSelect(p.cols, p.rows)}
-          style={{
-            padding: '4px 8px',
-            background: '#3c3c3c',
-            color: '#ccc',
-            border: '1px solid #555',
-            borderRadius: 3,
-            cursor: 'pointer',
-            fontSize: 12,
-          }}
-        >
-          {p.label}
-        </button>
-      ))}
+      {PRESETS.map((p) => {
+        const isActive = p.cols === selectedCols && p.rows === selectedRows;
+        return (
+          <button
+            key={p.label}
+            onClick={() => onSelect(p.cols, p.rows)}
+            style={{
+              padding: '4px 8px',
+              background: isActive ? '#0e639c' : '#3c3c3c',
+              color: isActive ? '#fff' : '#ccc',
+              border: isActive ? '1px solid #0e639c' : '1px solid #555',
+              borderRadius: 3,
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
+            {p.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

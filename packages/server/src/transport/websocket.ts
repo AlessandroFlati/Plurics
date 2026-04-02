@@ -61,14 +61,21 @@ async function handleMessage(
         name: info.name,
       });
       const session = registry.get(info.id)!;
-      const unsub = session.onData((data) => {
+      const unsubData = session.onData((data) => {
         sendMessage(ws, {
           type: 'terminal:output',
           terminalId: info.id,
           data,
         });
       });
-      cleanups.push(unsub);
+      const unsubExit = session.onExit(() => {
+        sendMessage(ws, {
+          type: 'terminal:exited',
+          terminalId: info.id,
+          exitCode: 0,
+        });
+      });
+      cleanups.push(unsubData, unsubExit);
       break;
     }
 
@@ -80,14 +87,21 @@ async function handleMessage(
         name: info.name,
       });
       const session = registry.get(info.id)!;
-      const unsub = session.onData((data) => {
+      const unsubData = session.onData((data) => {
         sendMessage(ws, {
           type: 'terminal:output',
           terminalId: info.id,
           data,
         });
       });
-      cleanups.push(unsub);
+      const unsubExit = session.onExit(() => {
+        sendMessage(ws, {
+          type: 'terminal:exited',
+          terminalId: info.id,
+          exitCode: 0,
+        });
+      });
+      cleanups.push(unsubData, unsubExit);
       break;
     }
 
@@ -112,12 +126,21 @@ async function handleMessage(
     }
 
     case 'terminal:kill': {
-      await registry.kill(msg.terminalId);
-      sendMessage(ws, {
-        type: 'terminal:exited',
-        terminalId: msg.terminalId,
-        exitCode: 0,
-      });
+      // Graceful shutdown: send Ctrl+C to interrupt, then /exit for Claude Code
+      // (which also works as a comment in bash), then exit for the shell.
+      // The exit poller detects the session ended and fires onExit.
+      const session = registry.get(msg.terminalId);
+      if (!session) {
+        sendMessage(ws, { type: 'error', message: `Terminal not found: ${msg.terminalId}` });
+        return;
+      }
+      session.write('\x03'); // Ctrl+C
+      setTimeout(() => {
+        session.write('/exit\n');
+        setTimeout(() => {
+          session.write('exit\n');
+        }, 500);
+      }, 200);
       break;
     }
 

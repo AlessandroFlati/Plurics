@@ -13,6 +13,7 @@ export class TerminalRegistry {
   async spawn(config: TerminalConfig): Promise<TerminalInfo> {
     const session = await TerminalSession.create(this.tmux, config);
     this.sessions.set(session.id, session);
+    session.onExit(() => this.sessions.delete(session.id));
     return session.info;
   }
 
@@ -24,6 +25,7 @@ export class TerminalRegistry {
     }
     const session = await TerminalSession.attach(this.tmux, tmuxSessionName);
     this.sessions.set(session.id, session);
+    session.onExit(() => this.sessions.delete(session.id));
     return session.info;
   }
 
