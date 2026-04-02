@@ -12,27 +12,25 @@ interface TerminalPaneProps {
   ws: WebSocketClient | null;
 }
 
-function measureCellSize(container: HTMLElement, fontFamily: string, fontSize: number): { width: number; height: number } {
-  const span = document.createElement('span');
-  span.style.fontFamily = fontFamily;
-  span.style.fontSize = `${fontSize}px`;
-  span.style.visibility = 'hidden';
-  span.style.position = 'absolute';
-  span.style.whiteSpace = 'pre';
-  span.textContent = 'W'.repeat(50);
-  container.appendChild(span);
-  const width = span.offsetWidth / 50;
-  const height = span.offsetHeight || fontSize * 1.2;
-  container.removeChild(span);
-  return { width, height };
+function getCellDimensions(xterm: Terminal): { width: number; height: number } | null {
+  // Read cell dimensions from xterm's internal renderer
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const core = (xterm as any)._core;
+  const dims = core?._renderService?.dimensions?.css?.cell;
+  if (dims?.width && dims?.height) return dims;
+  // Fallback: read from char size service
+  const charWidth = core?._charSizeService?.width;
+  const charHeight = core?._charSizeService?.height;
+  if (charWidth && charHeight) return { width: charWidth, height: charHeight };
+  return null;
 }
 
-function fitTerminal(xterm: Terminal, container: HTMLElement, fontFamily: string, fontSize: number) {
-  const cell = measureCellSize(container, fontFamily, fontSize);
-  if (cell.width <= 0 || cell.height <= 0) return;
+function fitTerminal(xterm: Terminal, container: HTMLElement) {
+  const cell = getCellDimensions(xterm);
+  if (!cell) return;
 
-  // Account for scrollbar (14px) and small padding
-  const availWidth = container.clientWidth - 14;
+  const scrollbarWidth = (xterm as any)._core?.viewport?.scrollBarWidth ?? 0;
+  const availWidth = container.clientWidth - scrollbarWidth;
   const availHeight = container.clientHeight;
 
   const cols = Math.max(2, Math.floor(availWidth / cell.width));
@@ -43,8 +41,7 @@ function fitTerminal(xterm: Terminal, container: HTMLElement, fontFamily: string
   }
 }
 
-const FONT_FAMILY = 'Menlo, Monaco, "Courier New", monospace';
-const FONT_SIZE = 13;
+const FONT = { family: 'Menlo, Monaco, "Courier New", monospace', size: 13 };
 
 export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -55,8 +52,8 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
 
     const xterm = new Terminal({
       cursorBlink: true,
-      fontSize: FONT_SIZE,
-      fontFamily: FONT_FAMILY,
+      fontSize: FONT.size,
+      fontFamily: FONT.family,
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',
@@ -75,7 +72,7 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
 
     const doFit = () => {
       if (containerRef.current) {
-        fitTerminal(xterm, containerRef.current, FONT_FAMILY, FONT_SIZE);
+        fitTerminal(xterm, containerRef.current);
       }
     };
 
