@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { subscribeToOutput } from '../../stores/terminal-store';
 import type { WebSocketClient } from '../../services/websocket-client';
@@ -13,6 +12,40 @@ interface TerminalPaneProps {
   ws: WebSocketClient | null;
 }
 
+function measureCellSize(container: HTMLElement, fontFamily: string, fontSize: number): { width: number; height: number } {
+  const span = document.createElement('span');
+  span.style.fontFamily = fontFamily;
+  span.style.fontSize = `${fontSize}px`;
+  span.style.visibility = 'hidden';
+  span.style.position = 'absolute';
+  span.style.whiteSpace = 'pre';
+  span.textContent = 'W'.repeat(50);
+  container.appendChild(span);
+  const width = span.offsetWidth / 50;
+  const height = span.offsetHeight || fontSize * 1.2;
+  container.removeChild(span);
+  return { width, height };
+}
+
+function fitTerminal(xterm: Terminal, container: HTMLElement, fontFamily: string, fontSize: number) {
+  const cell = measureCellSize(container, fontFamily, fontSize);
+  if (cell.width <= 0 || cell.height <= 0) return;
+
+  // Account for scrollbar (14px) and small padding
+  const availWidth = container.clientWidth - 14;
+  const availHeight = container.clientHeight;
+
+  const cols = Math.max(2, Math.floor(availWidth / cell.width));
+  const rows = Math.max(1, Math.floor(availHeight / cell.height));
+
+  if (cols !== xterm.cols || rows !== xterm.rows) {
+    xterm.resize(cols, rows);
+  }
+}
+
+const FONT_FAMILY = 'Menlo, Monaco, "Courier New", monospace';
+const FONT_SIZE = 13;
+
 export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -22,45 +55,44 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
 
     const xterm = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontSize: FONT_SIZE,
+      fontFamily: FONT_FAMILY,
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',
       },
     });
 
-    const fitAddon = new FitAddon();
-    xterm.loadAddon(fitAddon);
     xterm.open(containerRef.current);
+
+    try {
+      xterm.loadAddon(new WebglAddon());
+    } catch {
+      // WebGL not available, canvas renderer is fine
+    }
+
     xtermRef.current = xterm;
 
-    // Fit + init after layout settles. Load WebGL AFTER first fit
-    // because WebGL addon interferes with FitAddon's cell measurement.
-    const sendInitial = () => {
-      try {
-        fitAddon.fit();
-
-        // Load WebGL after initial fit
-        try {
-          xterm.loadAddon(new WebglAddon());
-        } catch {
-          // WebGL not available, canvas renderer is fine
-        }
-
-        ws?.send({
-          type: 'terminal:resize',
-          terminalId: terminal.id,
-          cols: xterm.cols,
-          rows: xterm.rows,
-        });
-        ws?.send({
-          type: 'terminal:subscribe',
-          terminalId: terminal.id,
-        });
-      } catch { /* container may not be ready */ }
+    const doFit = () => {
+      if (containerRef.current) {
+        fitTerminal(xterm, containerRef.current, FONT_FAMILY, FONT_SIZE);
+      }
     };
-    setTimeout(sendInitial, 100);
+
+    // Initial fit + server handshake after layout settles
+    setTimeout(() => {
+      doFit();
+      ws?.send({
+        type: 'terminal:resize',
+        terminalId: terminal.id,
+        cols: xterm.cols,
+        rows: xterm.rows,
+      });
+      ws?.send({
+        type: 'terminal:subscribe',
+        terminalId: terminal.id,
+      });
+    }, 100);
 
     xterm.onData((data) => {
       ws?.send({
@@ -83,9 +115,7 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
       });
     });
 
-    const observer = new ResizeObserver(() => {
-      try { fitAddon.fit(); } catch { /* terminal may be disposed */ }
-    });
+    const observer = new ResizeObserver(() => doFit());
     observer.observe(containerRef.current);
 
     return () => {
