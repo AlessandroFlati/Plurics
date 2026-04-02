@@ -29,6 +29,8 @@ export class TerminalSession {
   private pipeProcess: ChildProcess | null = null;
   private pipePath: string | null = null;
   private exitPoller: ReturnType<typeof setInterval> | null = null;
+  private pipeStarted = false;
+  private readonly deferredCommand: string;
 
   private constructor(
     id: string,
@@ -37,6 +39,7 @@ export class TerminalSession {
     cols: number,
     rows: number,
     tmux: TmuxManager,
+    deferredCommand: string,
   ) {
     this.id = id;
     this.name = name;
@@ -45,6 +48,7 @@ export class TerminalSession {
     this.rows = rows;
     this.createdAt = Date.now();
     this.tmux = tmux;
+    this.deferredCommand = deferredCommand;
   }
 
   static async create(tmux: TmuxManager, config: TerminalConfig): Promise<TerminalSession> {
@@ -55,9 +59,11 @@ export class TerminalSession {
     const command = config.command ?? DEFAULT_COMMAND;
     const cwd = config.cwd ?? DEFAULT_CWD;
 
-    const tmuxSession = await tmux.createSession(name, command, cols, rows, cwd);
-    const session = new TerminalSession(id, name, tmuxSession, cols, rows, tmux);
-    await session.startPipeOutput();
+    // Create tmux with a waiting shell. The real command is deferred until
+    // the client sends its actual terminal dimensions (first resize).
+    // This ensures the TUI renders at the correct size from the start.
+    const tmuxSession = await tmux.createSession(name, 'bash', cols, rows, cwd);
+    const session = new TerminalSession(id, name, tmuxSession, cols, rows, tmux, command);
     session.startExitPoller();
     return session;
   }
@@ -69,8 +75,10 @@ export class TerminalSession {
     }
     const id = uuidv4();
     const name = tmuxSessionName.replace(TMUX_PREFIX, '');
-    const session = new TerminalSession(id, name, tmuxSessionName, DEFAULT_COLS, DEFAULT_ROWS, tmux);
+    const session = new TerminalSession(id, name, tmuxSessionName, DEFAULT_COLS, DEFAULT_ROWS, tmux, '');
+    // For attached sessions, pipe immediately (already running at whatever size)
     await session.startPipeOutput();
+    session.pipeStarted = true;
     session.startExitPoller();
     return session;
   }
@@ -100,6 +108,17 @@ export class TerminalSession {
     this.cols = cols;
     this.rows = rows;
     await this.tmux.resizePane(this.tmuxSession, cols, rows);
+
+    // On first resize: start pipe-pane, then launch the deferred command.
+    // This ensures the TUI app starts at the client's actual dimensions.
+    if (!this.pipeStarted) {
+      this.pipeStarted = true;
+      await this.startPipeOutput();
+      if (this.deferredCommand) {
+        // Use exec to replace the waiting shell with the real command
+        await this.tmux.sendKeys(this.tmuxSession, `exec ${this.deferredCommand}\n`);
+      }
+    }
   }
 
   async getScrollback(): Promise<string> {
@@ -124,11 +143,9 @@ export class TerminalSession {
    * to render TUI apps correctly (unlike capture-pane which strips them).
    */
   private async startPipeOutput(): Promise<void> {
-    // Create a FIFO (named pipe) for this session
     const tmpDir = os.tmpdir();
     this.pipePath = path.join(tmpDir, `caam-pipe-${this.id}`);
 
-    // Create FIFO
     await new Promise<void>((resolve, reject) => {
       const mkfifo = spawn('mkfifo', [this.pipePath!]);
       mkfifo.on('close', (code) => {
@@ -137,10 +154,8 @@ export class TerminalSession {
       });
     });
 
-    // Tell tmux to pipe the pane output to our FIFO
     await this.tmux.pipePaneToFile(this.tmuxSession, this.pipePath);
 
-    // Open the FIFO for reading (non-blocking via a child cat process)
     this.pipeProcess = spawn('cat', [this.pipePath], { stdio: ['ignore', 'pipe', 'ignore'] });
 
     this.pipeProcess.stdout!.on('data', (chunk: Buffer) => {
@@ -156,7 +171,6 @@ export class TerminalSession {
   }
 
   private stopPipeOutput(): void {
-    // Stop tmux pipe-pane
     this.tmux.pipePaneStop(this.tmuxSession).catch(() => {});
 
     if (this.pipeProcess) {
@@ -164,7 +178,6 @@ export class TerminalSession {
       this.pipeProcess = null;
     }
 
-    // Clean up FIFO
     if (this.pipePath) {
       try { fs.unlinkSync(this.pipePath); } catch { /* may already be gone */ }
       this.pipePath = null;
@@ -172,7 +185,6 @@ export class TerminalSession {
   }
 
   private startExitPoller(): void {
-    // Check periodically if the tmux session is still alive
     this.exitPoller = setInterval(async () => {
       try {
         const exists = await this.tmux.hasSession(this.tmuxSession);

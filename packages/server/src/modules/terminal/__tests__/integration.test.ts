@@ -67,6 +67,12 @@ describe('End-to-end integration', () => {
 
     const terminalId = created.terminalId;
 
+    // Send resize to trigger pipe-pane start (mirrors what xterm.js does on mount)
+    send(ws, { type: 'terminal:resize', terminalId, cols: 80, rows: 24 });
+
+    // Wait a moment for pipe-pane to start and deferred command to execute
+    await new Promise(r => setTimeout(r, 500));
+
     send(ws, { type: 'terminal:input', terminalId, data: 'echo E2E_MARKER\n' });
 
     const output = await waitFor(ws, (m) =>
