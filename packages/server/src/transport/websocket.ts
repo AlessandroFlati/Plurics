@@ -53,6 +53,7 @@ async function handleMessage(
       const info = await registry.spawn({
         name: msg.name,
         command: msg.command,
+        cwd: msg.cwd,
       });
       sendMessage(ws, {
         type: 'terminal:created',

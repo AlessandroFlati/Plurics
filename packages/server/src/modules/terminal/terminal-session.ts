@@ -4,6 +4,7 @@ import {
   type TerminalInfo,
   type TerminalConfig,
   DEFAULT_COMMAND,
+  DEFAULT_CWD,
   DEFAULT_COLS,
   DEFAULT_ROWS,
   TMUX_PREFIX,
@@ -47,8 +48,9 @@ export class TerminalSession {
     const cols = config.cols ?? DEFAULT_COLS;
     const rows = config.rows ?? DEFAULT_ROWS;
     const command = config.command ?? DEFAULT_COMMAND;
+    const cwd = config.cwd ?? DEFAULT_CWD;
 
-    const tmuxSession = await tmux.createSession(name, command, cols, rows);
+    const tmuxSession = await tmux.createSession(name, command, cols, rows, cwd);
     const session = new TerminalSession(id, name, tmuxSession, cols, rows, tmux);
     session.startPolling();
     return session;

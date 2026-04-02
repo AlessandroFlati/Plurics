@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { Terminal } from 'xterm';
+import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { subscribeToOutput } from '../../stores/terminal-store';
 import type { WebSocketClient } from '../../services/websocket-client';
 import type { TerminalInfo } from '../../types';
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 import './TerminalPane.css';
 
 interface TerminalPaneProps {
@@ -15,7 +16,6 @@ interface TerminalPaneProps {
 export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -29,13 +29,20 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
         foreground: '#d4d4d4',
       },
     });
+
     const fitAddon = new FitAddon();
     xterm.loadAddon(fitAddon);
     xterm.open(containerRef.current);
-    fitAddon.fit();
 
+    // Use WebGL renderer for proper rendering
+    try {
+      xterm.loadAddon(new WebglAddon());
+    } catch {
+      // WebGL not available, fall back to canvas (default in @xterm/xterm)
+    }
+
+    fitAddon.fit();
     xtermRef.current = xterm;
-    fitRef.current = fitAddon;
 
     xterm.onData((data) => {
       ws?.send({
@@ -59,9 +66,9 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
     });
 
     const observer = new ResizeObserver(() => {
-      fitAddon.fit();
+      try { fitAddon.fit(); } catch { /* terminal may be disposed */ }
     });
-    observer.observe(containerRef.current!);
+    observer.observe(containerRef.current);
 
     return () => {
       unsub();

@@ -18,7 +18,7 @@ export type ServerMessage =
 export type ClientMessage =
   | { type: 'terminal:input'; terminalId: string; data: string }
   | { type: 'terminal:resize'; terminalId: string; cols: number; rows: number }
-  | { type: 'terminal:spawn'; name?: string; command?: string }
+  | { type: 'terminal:spawn'; name?: string; command?: string; cwd?: string }
   | { type: 'terminal:attach'; tmuxSessionName: string }
   | { type: 'terminal:kill'; terminalId: string }
   | { type: 'terminal:list' };

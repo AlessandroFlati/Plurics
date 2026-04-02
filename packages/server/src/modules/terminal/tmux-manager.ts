@@ -5,13 +5,17 @@ import { TMUX_PREFIX } from './types.js';
 const execFileAsync = promisify(execFile);
 
 export class TmuxManager {
-  async createSession(name: string, command: string, cols: number, rows: number): Promise<string> {
+  async createSession(name: string, command: string, cols: number, rows: number, cwd?: string): Promise<string> {
     const sessionName = `${TMUX_PREFIX}${name}`;
-    await execFileAsync('tmux', [
+    const args = [
       'new-session', '-d', '-s', sessionName,
       '-x', String(cols), '-y', String(rows),
-      command,
-    ]);
+    ];
+    if (cwd) {
+      args.push('-c', cwd);
+    }
+    args.push(command);
+    await execFileAsync('tmux', args);
     return sessionName;
   }
 
