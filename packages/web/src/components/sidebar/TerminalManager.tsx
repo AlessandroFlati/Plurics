@@ -169,7 +169,7 @@ export function TerminalManager({ terminals, onSpawn, onKill }: TerminalManagerP
                     onMouseDown={() => selectSuggestion(dir)}
                     onMouseEnter={() => setSelectedIdx(i)}
                   >
-                    {dir}
+                    {dir.split('/').filter(Boolean).pop() ?? dir}/
                   </li>
                 ))}
               </ul>
