@@ -39,6 +39,7 @@
 
 .terminal-pane-body {
   flex: 1;
+  width: 100%;
   min-height: 0;
   overflow: hidden;
   background: #1e1e1e;
@@ -47,5 +48,4 @@
 /* Let xterm.js fill the container -- FitAddon handles sizing */
 .terminal-pane-body .xterm {
   height: 100%;
-  padding: 2px;
 }

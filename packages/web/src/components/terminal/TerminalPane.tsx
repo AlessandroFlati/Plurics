@@ -47,7 +47,12 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
     // resize and subscribe. Two rAF calls ensure layout is complete.
     const sendInitial = () => {
       try {
+        const body = containerRef.current;
+        if (body) {
+          console.log('FitAddon container:', body.clientWidth, 'x', body.clientHeight, 'parent:', body.parentElement?.clientWidth);
+        }
         fitAddon.fit();
+        console.log('FitAddon result:', xterm.cols, 'x', xterm.rows);
         ws?.send({
           type: 'terminal:resize',
           terminalId: terminal.id,
@@ -60,8 +65,8 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
         });
       } catch { /* container may not be ready */ }
     };
-    // Double rAF: first lets React commit, second lets the browser layout
-    requestAnimationFrame(() => requestAnimationFrame(sendInitial));
+    // Use setTimeout to ensure grid layout is fully settled before measuring
+    setTimeout(sendInitial, 100);
 
     xterm.onData((data) => {
       ws?.send({
