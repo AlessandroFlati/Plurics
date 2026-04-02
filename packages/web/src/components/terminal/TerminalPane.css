@@ -42,3 +42,16 @@
   min-height: 0;
   overflow: hidden;
 }
+
+/* Make xterm.js fill the body container */
+.terminal-pane-body .xterm {
+  height: 100%;
+}
+
+.terminal-pane-body .xterm-viewport {
+  overflow-y: hidden !important;
+}
+
+.terminal-pane-body .xterm-screen {
+  height: 100% !important;
+}
