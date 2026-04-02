@@ -5,6 +5,8 @@ import express from 'express';
 import { TmuxManager } from './modules/terminal/tmux-manager.js';
 import { TerminalRegistry } from './modules/terminal/terminal-registry.js';
 import { createWebSocketServer } from './transport/websocket.js';
+import { getDb } from './db/database.js';
+import { WorkspaceRepository } from './db/workspace-repository.js';
 
 const PORT = parseInt(process.env.PORT ?? '11001', 10);
 
@@ -69,6 +71,40 @@ app.get('/api/list-dirs', (req, res) => {
   } catch {
     res.json([]);
   }
+});
+
+const workspaceRepo = new WorkspaceRepository(getDb());
+
+app.get('/api/workspaces', (_req, res) => {
+  const workspaces = workspaceRepo.list();
+  res.json(workspaces.map(w => ({
+    ...w,
+    agents: workspaceRepo.getAgents(w.id),
+  })));
+});
+
+app.post('/api/workspaces', (req, res) => {
+  try {
+    const ws = workspaceRepo.create(req.body);
+    res.json({ ...ws, agents: workspaceRepo.getAgents(ws.id) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to create workspace' });
+  }
+});
+
+app.put('/api/workspaces/:id', (req, res) => {
+  workspaceRepo.update(Number(req.params.id), req.body);
+  res.json({ ok: true });
+});
+
+app.delete('/api/workspaces/:id', (req, res) => {
+  workspaceRepo.remove(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+app.post('/api/workspaces/:id/select', (req, res) => {
+  workspaceRepo.select(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 createWebSocketServer(server, registry);
