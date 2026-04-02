@@ -115,16 +115,13 @@ async function handleMessage(
         sendMessage(ws, { type: 'error', message: `Terminal not found: ${msg.terminalId}` });
         return;
       }
-      // Send current screen content so the client can render what's already there
-      const screen = await session.getScreenContent();
-      if (screen) {
-        sendMessage(ws, {
-          type: 'terminal:output',
-          terminalId: msg.terminalId,
-          data: screen,
-        });
-      }
-      // Subscribe to ongoing output
+      // Force a redraw by toggling the terminal size. This sends SIGWINCH
+      // to the running program, causing it to redraw at the current dimensions.
+      // The redraw output comes through pipe-pane as normal output.
+      const info = session.info;
+      await session.resize(info.cols, info.rows + 1);
+      await session.resize(info.cols, info.rows);
+
       const unsubData = session.onData((data) => {
         sendMessage(ws, {
           type: 'terminal:output',
