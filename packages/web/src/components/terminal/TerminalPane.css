@@ -1,0 +1,43 @@
+.terminal-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid #333;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.terminal-pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background: #2d2d2d;
+  font-size: 12px;
+  user-select: none;
+}
+
+.terminal-pane-name {
+  font-weight: 600;
+}
+
+.terminal-pane-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.terminal-pane-status--running {
+  background: #2ea04366;
+  color: #4ade80;
+}
+
+.terminal-pane-status--exited {
+  background: #dc262666;
+  color: #f87171;
+}
+
+.terminal-pane-body {
+  flex: 1;
+  overflow: hidden;
+}

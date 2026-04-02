@@ -1,0 +1,84 @@
+import { useEffect, useRef } from 'react';
+import { Terminal } from 'xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { subscribeToOutput } from '../../stores/terminal-store';
+import type { WebSocketClient } from '../../services/websocket-client';
+import type { TerminalInfo } from '../../types';
+import 'xterm/css/xterm.css';
+import './TerminalPane.css';
+
+interface TerminalPaneProps {
+  terminal: TerminalInfo;
+  ws: WebSocketClient | null;
+}
+
+export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const xterm = new Terminal({
+      cursorBlink: true,
+      fontSize: 13,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      theme: {
+        background: '#1e1e1e',
+        foreground: '#d4d4d4',
+      },
+    });
+    const fitAddon = new FitAddon();
+    xterm.loadAddon(fitAddon);
+    xterm.open(containerRef.current);
+    fitAddon.fit();
+
+    xtermRef.current = xterm;
+    fitRef.current = fitAddon;
+
+    xterm.onData((data) => {
+      ws?.send({
+        type: 'terminal:input',
+        terminalId: terminal.id,
+        data,
+      });
+    });
+
+    const unsub = subscribeToOutput(terminal.id, (data) => {
+      xterm.write(data);
+    });
+
+    xterm.onResize(({ cols, rows }) => {
+      ws?.send({
+        type: 'terminal:resize',
+        terminalId: terminal.id,
+        cols,
+        rows,
+      });
+    });
+
+    const observer = new ResizeObserver(() => {
+      fitAddon.fit();
+    });
+    observer.observe(containerRef.current!);
+
+    return () => {
+      unsub();
+      observer.disconnect();
+      xterm.dispose();
+    };
+  }, [terminal.id, ws]);
+
+  return (
+    <div className="terminal-pane">
+      <div className="terminal-pane-header">
+        <span className="terminal-pane-name">{terminal.name}</span>
+        <span className={`terminal-pane-status terminal-pane-status--${terminal.status}`}>
+          {terminal.status}
+        </span>
+      </div>
+      <div className="terminal-pane-body" ref={containerRef} />
+    </div>
+  );
+}
