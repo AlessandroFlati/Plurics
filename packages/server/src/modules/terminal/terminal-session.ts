@@ -97,6 +97,10 @@ export class TerminalSession {
     };
   }
 
+  get isCommandRunning(): boolean {
+    return this.pipeStarted;
+  }
+
   write(data: string): void {
     this.tmux.sendKeys(this.tmuxSession, data);
   }

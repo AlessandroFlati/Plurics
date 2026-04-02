@@ -115,12 +115,15 @@ async function handleMessage(
         sendMessage(ws, { type: 'error', message: `Terminal not found: ${msg.terminalId}` });
         return;
       }
-      // Force a redraw by toggling the terminal size. This sends SIGWINCH
+      // For reconnecting to an existing session (command already running),
+      // force a redraw by toggling the terminal size. This sends SIGWINCH
       // to the running program, causing it to redraw at the current dimensions.
-      // The redraw output comes through pipe-pane as normal output.
-      const info = session.info;
-      await session.resize(info.cols, info.rows + 1);
-      await session.resize(info.cols, info.rows);
+      // Skip for newly spawned terminals -- resize handler will launch the command.
+      if (session.isCommandRunning) {
+        const info = session.info;
+        await session.resize(info.cols, info.rows + 1);
+        await session.resize(info.cols, info.rows);
+      }
 
       const unsubData = session.onData((data) => {
         sendMessage(ws, {

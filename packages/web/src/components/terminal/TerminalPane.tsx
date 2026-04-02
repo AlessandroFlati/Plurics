@@ -27,7 +27,7 @@ function getCellDimensions(xterm: Terminal): { width: number; height: number } |
 
 function fitTerminal(xterm: Terminal, container: HTMLElement) {
   const cell = getCellDimensions(xterm);
-  if (!cell) return;
+  if (!cell) { console.log('fitTerminal: no cell dims'); return; }
 
   const scrollbarWidth = (xterm as any)._core?.viewport?.scrollBarWidth ?? 0;
   const availWidth = container.clientWidth - scrollbarWidth;
@@ -35,6 +35,7 @@ function fitTerminal(xterm: Terminal, container: HTMLElement) {
 
   const cols = Math.max(2, Math.floor(availWidth / cell.width));
   const rows = Math.max(1, Math.floor(availHeight / cell.height));
+  console.log('fitTerminal:', { cellW: cell.width, cellH: cell.height, scrollbar: scrollbarWidth, containerW: container.clientWidth, availWidth, cols, rows });
 
   if (cols !== xterm.cols || rows !== xterm.rows) {
     xterm.resize(cols, rows);
