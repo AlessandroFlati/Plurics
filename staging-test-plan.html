@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>oosmetrics - Staging Test Plan</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --secondary: #7d8590; --accent: #3b82f6;
+    --green: #22c55e; --red: #f85149; --yellow: #d4a017;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; max-width: 960px; margin: 0 auto; line-height: 1.6; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  .subtitle { color: var(--secondary); font-size: 14px; margin-bottom: 32px; }
+  h2 { font-size: 18px; margin: 32px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+  h2:hover { color: var(--accent); }
+  h2 .arrow { display: inline-block; transition: transform 0.2s; margin-right: 8px; font-size: 12px; }
+  h2.collapsed .arrow { transform: rotate(-90deg); }
+  h3 { font-size: 14px; color: var(--secondary); text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 10px; }
+  .section { margin-bottom: 16px; }
+  .section.collapsed .items { display: none; }
+  .item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; background: var(--surface); transition: background 0.15s; }
+  .item:hover { background: #1c2129; }
+  .item.checked { opacity: 0.5; }
+  .item.checked .label { text-decoration: line-through; }
+  .item.failed { border-color: var(--red); background: #1a0f0f; opacity: 1; }
+  .item input[type="checkbox"] { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--green); cursor: pointer; flex-shrink: 0; }
+  .label { font-size: 14px; font-weight: 600; }
+  .steps { margin-top: 6px; font-size: 13px; color: var(--secondary); }
+  .steps ol { margin: 4px 0 0 18px; }
+  .steps li { margin-bottom: 3px; }
+  .steps code { background: #21262d; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: var(--accent); }
+  .steps .expect { color: var(--green); font-style: italic; }
+  .fail-btn { font-size: 11px; color: var(--red); background: none; border: 1px solid var(--red); border-radius: 4px; padding: 2px 8px; cursor: pointer; flex-shrink: 0; margin-top: 2px; }
+  .fail-btn:hover { background: #2d1111; }
+  .progress-bar { position: sticky; top: 0; background: var(--bg); padding: 12px 0; z-index: 10; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .progress-track { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--green); border-radius: 4px; transition: width 0.3s; }
+  .progress-text { display: flex; justify-content: space-between; font-size: 12px; color: var(--secondary); margin-top: 6px; }
+  .stats { display: flex; gap: 16px; }
+  .stat-pass { color: var(--green); }
+  .stat-fail { color: var(--red); }
+  .stat-pending { color: var(--secondary); }
+  .env-box { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; }
+  .env-box code { color: var(--accent); font-family: monospace; }
+  .url { color: var(--accent); text-decoration: none; }
+  .url:hover { text-decoration: underline; }
+  .reset-btn { font-size: 12px; color: var(--secondary); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 12px; cursor: pointer; }
+  .reset-btn:hover { color: var(--red); border-color: var(--red); }
+  .fail-note { color: var(--red); font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>oosmetrics - Staging Test Plan</h1>
+<p class="subtitle">Complete functional and E2E testing before production deploy. All tests on <a class="url" href="https://staging.oosmetrics.com" target="_blank">staging.oosmetrics.com</a></p>
+<div class="progress-bar">
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="progress-text">
+    <div class="stats"><span class="stat-pass" id="passCount">0 passed</span><span class="stat-fail" id="failCount">0 failed</span><span class="stat-pending" id="pendingCount">0 pending</span></div>
+    <span id="progressPct">0%</span>
+    <button class="reset-btn" onclick="resetAll()">Reset all</button>
+  </div>
+</div>
+<div class="env-box">
+  <strong>Test Environment</strong><br>
+  Staging: <a class="url" href="https://staging.oosmetrics.com" target="_blank">staging.oosmetrics.com</a> | API: <code>api-staging.oosmetrics.com</code><br>
+  Test users: <code>alessandro.flati+free@gmail.com</code> (free), <code>+pro</code> (pro), <code>+ai</code> (ai) - sign in via magic link<br>
+  Admin secret (staging): <code>794afdf63e9f0abbc3c98c76c92a288366d828b49e63b6380effe8b192e4f6d1</code>
+</div>
+<div id="sections"></div>
+<script>
+const T = [
+{title:"1. Authentication - OAuth",groups:[{name:"GitHub OAuth",items:[
+{id:"auth-gh-1",label:"Sign in with GitHub",steps:[
+"Open <code>https://staging.oosmetrics.com/signin</code>",
+"Click 'Continue with GitHub'",
+"Authorize on GitHub (or auto-redirect if already authorized)",
+"<span class='expect'>Expected: redirected to homepage (/), avatar/name visible in top-right navbar</span>"
+]},
+{id:"auth-gh-2",label:"Sign out after GitHub login",steps:[
+"Click your avatar in the top-right navbar",
+"Click 'Sign out'",
+"<span class='expect'>Expected: redirected to homepage, avatar gone, 'Sign in' button visible</span>"
+]}
+]},{name:"Google OAuth",items:[
+{id:"auth-go-1",label:"Sign in with Google",steps:[
+"Open <code>/signin</code>",
+"Click 'Continue with Google'",
+"Select your Google account",
+"<span class='expect'>Expected: redirected to homepage, session active, avatar visible</span>"
+]}
+]},{name:"Account Linking",items:[
+{id:"auth-link-1",label:"Same email across providers links to same account",steps:[
+"Sign in with GitHub (using your primary email)",
+"Note the user ID on <code>/profile</code>",
+"Sign out",
+"Sign in with Google (same email address)",
+"Go to <code>/profile</code>",
+"<span class='expect'>Expected: same user ID, both GitHub and Google listed under Connected Accounts</span>"
+]}
+]}]},
+
+{title:"2. Authentication - Magic Link",groups:[{name:"Magic Link Flow",items:[
+{id:"magic-form",label:"Email sign-in form visible",steps:[
+"Open <code>/signin</code>",
+"<span class='expect'>Expected: GitHub and Google buttons visible at top, 'or' divider, then email input field and 'Sign in with email' button below</span>"
+]},
+{id:"magic-send",label:"Send magic link email",steps:[
+"Enter <code>alessandro.flati+free@gmail.com</code> in the email field",
+"Click 'Sign in with email'",
+"<span class='expect'>Expected: page changes to 'Check your email' screen with envelope icon</span>"
+]},
+{id:"magic-alt",label:"Use a different method link",steps:[
+"On the 'Check your email' screen, click 'Use a different method'",
+"<span class='expect'>Expected: returns to the sign-in form with all options visible</span>"
+]},
+{id:"magic-email",label:"Magic link email arrives",steps:[
+"Re-submit the email (click 'Sign in with email' again)",
+"Open Gmail inbox for alessandro.flati@gmail.com",
+"Look for email from <code>noreply@oosmetrics.com</code> with subject 'Sign in to oosmetrics'",
+"<span class='expect'>Expected: dark-themed email with green 'Sign in' button and 'If you did not request...' footer</span>"
+]},
+{id:"magic-click",label:"Click magic link - redirects to homepage",steps:[
+"Click the 'Sign in' button in the email",
+"<span class='expect'>Expected: browser opens staging.oosmetrics.com, redirects to / (not /signin), session is active</span>"
+]},
+{id:"magic-toast",label:"Welcome toast notification",steps:[
+"After clicking the magic link and landing on the homepage",
+"<span class='expect'>Expected: 'Welcome, Test Free!' toast appears in top-right corner, green checkmark icon, auto-dismisses after ~4 seconds</span>"
+]},
+{id:"magic-toast-no-repeat",label:"Toast does not repeat on refresh",steps:[
+"Refresh the page (F5)",
+"<span class='expect'>Expected: toast does NOT appear again</span>",
+"Close tab, open staging.oosmetrics.com again",
+"<span class='expect'>Expected: toast does NOT appear (same browser session)</span>"
+]},
+{id:"magic-tier",label:"Free tier user profile",steps:[
+"Go to <code>/profile</code>",
+"<span class='expect'>Expected: tier shows 'free', email shows alessandro.flati+free@gmail.com</span>"
+]}
+]}]},
+
+{title:"3. Authentication - Terms & Legal",groups:[{name:"Legal Pages",items:[
+{id:"legal-terms-link",label:"Terms link on signin page",steps:[
+"Open <code>/signin</code>",
+"Find 'By signing in, you agree to our terms of service' text at the bottom",
+"<span class='expect'>Expected: 'terms of service' is a clickable blue link</span>",
+"Click it",
+"<span class='expect'>Expected: navigates to /terms</span>"
+]},
+{id:"legal-terms",label:"/terms page loads",steps:[
+"Open <code>/terms</code>",
+"<span class='expect'>Expected: Terms of Service page renders with content, no errors</span>"
+]},
+{id:"legal-privacy",label:"/privacy page loads",steps:[
+"Open <code>/privacy</code>",
+"<span class='expect'>Expected: Privacy Policy page renders with content, no errors</span>"
+]},
+{id:"legal-cookies",label:"Cookie consent banner",steps:[
+"Open staging in a private/incognito window",
+"<span class='expect'>Expected: cookie consent banner appears at the bottom of the page</span>",
+"Accept cookies",
+"Refresh page",
+"<span class='expect'>Expected: banner does not appear again</span>"
+]}
+]}]},
+
+{title:"4. Core - Feed & Sorting",groups:[{name:"Feed Loading",items:[
+{id:"feed-load",label:"Homepage feed loads",steps:[
+"Open <code>https://staging.oosmetrics.com</code>",
+"<span class='expect'>Expected: list of repo cards with growth rate, stars, acceleration label, grade pills. No 'Nothing here yet' or error messages</span>"
+]}
+]},{name:"Sort Options",items:[
+{id:"feed-sort-growth",label:"Sort by growth rate",steps:[
+"On the homepage, find the sort dropdown/tabs",
+"Select 'Growth rate' (or it may be default)",
+"<span class='expect'>Expected: repos reorder, highest growth rate first. Each card shows +X.X%/wk or similar</span>"
+]},
+{id:"feed-sort-abs",label:"Sort by absolute growth",steps:[
+"Select 'Absolute growth' sort",
+"<span class='expect'>Expected: repos reorder by stars/day. Top repos should be high-star repos with large daily gains</span>"
+]},
+{id:"feed-sort-accel",label:"Sort by acceleration",steps:[
+"Select 'Acceleration' sort",
+"<span class='expect'>Expected: repos reorder. Cards show acceleration labels (Surging/Rising/Steady/Declining)</span>"
+]},
+{id:"feed-sort-stars",label:"Sort by stars",steps:[
+"Select 'Stars' sort",
+"<span class='expect'>Expected: repos reorder by total star count descending</span>"
+]},
+{id:"feed-rising",label:"Rising star filter",steps:[
+"Click 'Rising' tab in the navbar (or /?view=rising)",
+"<span class='expect'>Expected: filtered feed showing only repos flagged as rising stars</span>"
+]}
+]}]},
+
+{title:"5. Core - Repo Detail",groups:[{name:"Detail Page",items:[
+{id:"repo-detail",label:"Repo detail page loads",steps:[
+"Click any repo card on the homepage feed",
+"<span class='expect'>Expected: detail page loads with repo name, description, topics, primary language, star count</span>",
+"<span class='expect'>Expected: metrics section shows growth rate, acceleration, originality with grade pills</span>"
+]},
+{id:"repo-charts",label:"30-day charts render (STAGING NOTE: may be empty)",steps:[
+"On the repo detail page, scroll down to the charts section",
+"<span class='expect'>Expected on production: star history area chart, growth rate line chart, acceleration bar chart visible with data points</span>",
+"<span class='expect'>NOTE: On staging, charts may be empty because DISABLE_BACKGROUND_WORKERS=true means no snapshot history is collected. This is expected. Charts need 10+ daily snapshots to render.</span>",
+"If charts are empty on staging, mark as PASSED (expected behavior)"
+]},
+{id:"repo-license",label:"License displayed",steps:[
+"On the repo detail page, scroll to the metadata footer",
+"<span class='expect'>Expected: 'License: MIT' (or appropriate SPDX) displayed with blue monospace text</span>",
+"Try a repo without a license",
+"<span class='expect'>Expected: no license line shown (not 'Unknown' or error)</span>"
+]},
+{id:"repo-ai-overview",label:"AI Overview section",steps:[
+"On a repo detail page, look for the 'AI Overview' section",
+"If no cached description: <span class='expect'>Expected: 'Generating AI description...' with pulse animation</span>",
+"Wait ~30 seconds and refresh",
+"<span class='expect'>Expected: AI Overview appears with sections: What it does, Who it's for, Quick start, Prerequisites</span>",
+"If rate limited: <span class='expect'>Expected: 'We are currently overloaded with requests' message (not silent failure)</span>"
+]}
+]}]},
+
+{title:"6. Core - Search & Watchlist",groups:[{name:"Search",items:[
+{id:"search-suggest",label:"Autocomplete suggestions",steps:[
+"Click the search bar in the navbar",
+"Type 'react'",
+"<span class='expect'>Expected: dropdown appears with repo suggestions (e.g. facebook/react, reactjs/...)</span>"
+]},
+{id:"search-submit",label:"Search results page",steps:[
+"Type 'machine learning framework' in the search bar",
+"Press Enter",
+"<span class='expect'>Expected: /search page loads with results. Since this is a natural language query, smart search should return semantically relevant ML repos</span>"
+]},
+{id:"search-repo-name",label:"Search with owner/name format",steps:[
+"Type 'torvalds/linux' in the search bar",
+"Press Enter",
+"<span class='expect'>Expected: keyword search used (contains /), shows the linux repo in results</span>"
+]}
+]},{name:"Watchlist",items:[
+{id:"watch-add",label:"Add repo to watchlist (signed in)",steps:[
+"Sign in with any account",
+"Go to any repo detail page",
+"Click the watchlist/bookmark button",
+"<span class='expect'>Expected: button state changes (filled/active), repo is now watched</span>"
+]},
+{id:"watch-persist",label:"Watchlist persists across refresh",steps:[
+"After adding a repo to watchlist, refresh the page (F5)",
+"<span class='expect'>Expected: the watchlist button is still active/filled</span>",
+"Go to /for-you page",
+"<span class='expect'>Expected: the watched repo appears in your personalized feed</span>"
+]},
+{id:"watch-restore",label:"Watchlist survives sign-out/sign-in",steps:[
+"Note which repos are in your watchlist",
+"Sign out",
+"Sign back in with the same account",
+"Go to /for-you",
+"<span class='expect'>Expected: same repos still in watchlist (DB-backed persistence)</span>"
+]},
+{id:"watch-anon",label:"Anonymous watchlist (localStorage)",steps:[
+"Open staging in an incognito window (not signed in)",
+"Go to a repo detail page and add to watchlist",
+"Refresh the page",
+"<span class='expect'>Expected: repo still watched (localStorage persistence)</span>",
+"Close incognito window",
+"<span class='expect'>Expected: watchlist lost (localStorage cleared)</span>"
+]}
+]}]},
+
+{title:"7. Billing & Stripe (v1.7)",groups:[{name:"Pricing Page",items:[
+{id:"stripe-pricing",label:"Pricing page renders correctly",steps:[
+"Open <code>/pricing</code>",
+"<span class='expect'>Expected: 3 columns - Free / Pro ($5/mo) / AI ($9/mo)</span>",
+"<span class='expect'>Expected: each column lists features with checkmarks</span>",
+"<span class='expect'>Expected: feature comparison table below the cards</span>"
+]},
+{id:"stripe-expand",label:"Expandable feature details",steps:[
+"On /pricing, look for expandable/collapsible feature detail sections",
+"Click to expand one",
+"<span class='expect'>Expected: additional feature details appear smoothly</span>"
+]}
+]},{name:"Checkout Flow",items:[
+{id:"stripe-checkout-pro",label:"Pro upgrade checkout redirect",steps:[
+"Sign in as the +free test user",
+"Go to <code>/pricing</code>",
+"Click the upgrade button on the Pro plan",
+"<span class='expect'>Expected: redirected to Stripe Checkout page showing Pro plan at $5/mo</span>",
+"Click back or close the tab (DO NOT complete the purchase)",
+"<span class='expect'>Expected: returned to staging without errors, still on free tier</span>"
+]},
+{id:"stripe-checkout-ai",label:"AI upgrade checkout redirect",steps:[
+"Sign in as the +free test user",
+"Go to <code>/pricing</code>",
+"Click the upgrade button on the AI plan",
+"<span class='expect'>Expected: redirected to Stripe Checkout showing AI plan at $9/mo</span>",
+"Cancel and go back"
+]},
+{id:"stripe-portal",label:"Billing portal (for paid users)",steps:[
+"Sign in as the +pro test user (must have gone through a real Stripe checkout, not just DB tier set)",
+"Go to <code>/profile</code>",
+"Click the 'Manage' button",
+"<span class='expect'>Expected: redirects to Stripe billing portal showing subscription details</span>",
+"<span class='expect'>If user was set up via DB migration only (no Stripe customer): alert appears with 'Unable to open billing portal'</span>"
+]}
+]},{name:"Payment - Successful Checkout (Test Mode)",items:[
+{id:"stripe-pay-pro-success",label:"Complete Pro checkout with valid test card",steps:[
+"Sign in as the +free test user",
+"Go to <code>/pricing</code>, click upgrade to Pro",
+"On Stripe Checkout, enter test card: <code>4242 4242 4242 4242</code>",
+"Expiry: any future date (e.g. <code>12/30</code>)",
+"CVC: any 3 digits (e.g. <code>123</code>)",
+"Name and address: anything",
+"Click 'Subscribe'",
+"<span class='expect'>Expected: payment succeeds, redirected back to staging</span>",
+"Go to <code>/profile</code>",
+"<span class='expect'>Expected: tier shows 'Pro', 'Active' badge visible</span>",
+"<span class='expect'>Expected: 'Manage' button visible and working (opens Stripe portal)</span>"
+]},
+{id:"stripe-pay-pro-features",label:"Verify Pro features unlocked after upgrade",steps:[
+"After completing Pro checkout, verify features:",
+"Go to <code>/alerts</code> - create up to 5 alerts",
+"<span class='expect'>Expected: 5 alerts allowed (was 1 on free)</span>",
+"Go to any repo detail page",
+"<span class='expect'>Expected: 'Generate analysis' button visible (was 'Upgrade to Pro')</span>",
+"Go to <code>/profile</code> - create an API key",
+"<span class='expect'>Expected: key created successfully</span>"
+]},
+{id:"stripe-pay-ai-success",label:"Complete AI checkout with valid test card",steps:[
+"Sign in as a different free test user (or downgrade the Pro user first via Stripe dashboard)",
+"Go to <code>/pricing</code>, click upgrade to AI",
+"Enter test card: <code>4242 4242 4242 4242</code>, complete checkout",
+"<span class='expect'>Expected: payment succeeds, tier shows 'AI' on profile</span>",
+"<span class='expect'>Expected: 'Manage subscription' button visible</span>"
+]},
+{id:"stripe-pay-ai-features",label:"Verify AI features unlocked after upgrade",steps:[
+"After completing AI checkout:",
+"Go to <code>/alerts</code> - create more than 5 alerts",
+"<span class='expect'>Expected: unlimited alerts allowed</span>",
+"Test MCP tools/list with API key",
+"<span class='expect'>Expected: 10 tools listed (including AI-only tools)</span>"
+]}
+]},{name:"Payment - Declined Cards",items:[
+{id:"stripe-pay-declined",label:"Card declined",steps:[
+"Sign in as free user, go to <code>/pricing</code>, click upgrade to Pro",
+"Enter test card: <code>4000 0000 0000 0002</code>",
+"Expiry: <code>12/30</code>, CVC: <code>123</code>",
+"Click 'Subscribe'",
+"<span class='expect'>Expected: Stripe shows 'Your card has been declined' error message</span>",
+"<span class='expect'>Expected: user stays on Stripe Checkout, can try another card</span>",
+"Close the tab and go back to staging",
+"<span class='expect'>Expected: user is still on free tier (no change)</span>"
+]},
+{id:"stripe-pay-insufficient",label:"Insufficient funds",steps:[
+"Start checkout flow again",
+"Enter test card: <code>4000 0000 0000 9995</code>",
+"Click 'Subscribe'",
+"<span class='expect'>Expected: Stripe shows 'Your card has insufficient funds' error</span>",
+"<span class='expect'>Expected: user can retry with different card or cancel</span>"
+]},
+{id:"stripe-pay-expired",label:"Expired card",steps:[
+"Start checkout flow again",
+"Enter test card: <code>4000 0000 0000 0069</code>",
+"Click 'Subscribe'",
+"<span class='expect'>Expected: Stripe shows 'Your card has expired' error</span>"
+]},
+{id:"stripe-pay-cvc-fail",label:"Incorrect CVC",steps:[
+"Start checkout flow again",
+"Enter test card: <code>4000 0000 0000 0127</code>",
+"Click 'Subscribe'",
+"<span class='expect'>Expected: Stripe shows an incorrect security code error</span>"
+]},
+{id:"stripe-pay-3ds",label:"3D Secure authentication required",steps:[
+"Start checkout flow again",
+"Enter test card: <code>4000 0000 0000 3220</code>",
+"Click 'Subscribe'",
+"<span class='expect'>Expected: 3D Secure authentication modal appears</span>",
+"Click 'Complete' in the 3DS modal",
+"<span class='expect'>Expected: payment succeeds after authentication</span>"
+]},
+{id:"stripe-pay-3ds-fail",label:"3D Secure authentication failed",steps:[
+"Start checkout flow again",
+"Enter test card: <code>4000 0027 6000 3184</code>",
+"Click 'Subscribe'",
+"<span class='expect'>Expected: 3D Secure modal appears</span>",
+"Click 'Fail' in the 3DS modal",
+"<span class='expect'>Expected: payment fails, user stays on checkout page</span>"
+]}
+]},{name:"Payment - Subscription Management",items:[
+{id:"stripe-portal-cancel",label:"Cancel subscription via portal",steps:[
+"Sign in as a user with an active subscription (completed checkout earlier)",
+"Go to <code>/profile</code>, click 'Manage'",
+"<span class='expect'>Expected: Stripe billing portal opens</span>",
+"Click 'Cancel plan' or 'Cancel subscription'",
+"Confirm cancellation",
+"<span class='expect'>Expected: subscription marked for cancellation at period end</span>",
+"Go back to staging, refresh <code>/profile</code>",
+"<span class='expect'>Expected: tier may still show as active until period end (Stripe handles this)</span>",
+"Note: the webhook <code>customer.subscription.deleted</code> fires at period end, which would downgrade the tier to free"
+]},
+{id:"stripe-portal-update",label:"Update payment method via portal",steps:[
+"Sign in as a user with an active subscription",
+"Go to <code>/profile</code>, click 'Manage'",
+"In the Stripe portal, click 'Update payment method'",
+"Enter a new test card: <code>5555 5555 5555 4444</code> (Mastercard test)",
+"<span class='expect'>Expected: payment method updated successfully</span>"
+]},
+{id:"stripe-upgrade-pro-to-ai",label:"Upgrade from Pro to AI",steps:[
+"Sign in as a Pro subscriber",
+"Go to <code>/pricing</code>",
+"Click upgrade to AI",
+"<span class='expect'>Expected: Stripe Checkout shows AI plan ($9/mo), may prorate</span>",
+"Complete payment with test card <code>4242 4242 4242 4242</code>",
+"<span class='expect'>Expected: tier changes to AI on profile</span>"
+]}
+]},{name:"Payment - Webhook Verification",items:[
+{id:"stripe-webhook-sub-created",label:"Webhook: subscription created",steps:[
+"After a successful checkout, check staging API logs:",
+"<code>ssh deploy@89.167.64.174 \"docker logs oosmetrics-staging-api-staging-1 2>&1 | grep -i stripe | tail -5\"</code>",
+"<span class='expect'>Expected: log entries showing webhook received and user tier updated</span>"
+]},
+{id:"stripe-webhook-sub-deleted",label:"Webhook: subscription deleted",steps:[
+"After cancelling a subscription in the portal:",
+"Check staging API logs for webhook processing",
+"<span class='expect'>Expected: user tier reverted to 'free' in the database</span>",
+"Verify: <code>docker exec oosmetrics-staging-db-staging-1 psql -U ghm -d githubmetrics_staging -c \"SELECT email, tier FROM users WHERE email LIKE '%+%';\"</code>"
+]}
+]}]},
+
+{title:"8. Alerts (v1.8)",groups:[{name:"Alert Creation",items:[
+{id:"alert-nav",label:"Navigate to alerts page",steps:[
+"Sign in with any test user",
+"Click 'Alerts' in the navbar",
+"<span class='expect'>Expected: /alerts page loads. If no alerts exist, shows 'No alerts yet' message with 'Create new alert' button</span>"
+]},
+{id:"alert-create-step1",label:"Create alert - step 1 (name + description)",steps:[
+"Click 'Create new alert'",
+"<span class='expect'>Expected: wizard modal opens with Step 1 - name and description inputs</span>",
+"Enter name: <code>Test Rust Alert</code>",
+"Enter description: <code>Rust CLI tools and terminal utilities</code>",
+"Click 'Next - Preview'",
+"<span class='expect'>Expected: button shows 'Analyzing...' then transitions to Step 2</span>"
+]},
+{id:"alert-create-step2",label:"Create alert - step 2 (preview)",steps:[
+"After clicking Next, Step 2 should appear",
+"<span class='expect'>Expected: loading skeleton appears first (3 pulsing rectangles)</span>",
+"<span class='expect'>Expected: after a few seconds, matching repos appear with names, growth rates</span>",
+"<span class='expect'>Expected: heading says 'Repos that would match this alert'</span>",
+"If no results: this is OK if embeddings aren't fully loaded"
+]},
+{id:"alert-create-save",label:"Save alert",steps:[
+"On Step 2, click 'Create alert'",
+"<span class='expect'>Expected: modal closes, new alert appears in the list with name 'Test Rust Alert', description, enabled toggle</span>",
+"<span class='expect'>Expected: counter at bottom shows '1 of X alerts used'</span>"
+]}
+]},{name:"Alert Management",items:[
+{id:"alert-edit",label:"Edit an alert",steps:[
+"Click 'Edit' on the alert you just created",
+"<span class='expect'>Expected: wizard opens pre-filled with the alert's name and description</span>",
+"Change the description to <code>Rust web frameworks</code>",
+"Click 'Next - Preview'",
+"<span class='expect'>Expected: preview shows different repos matching the new description</span>",
+"Click 'Update alert'",
+"<span class='expect'>Expected: alert list updates with new description</span>"
+]},
+{id:"alert-toggle",label:"Toggle alert off/on",steps:[
+"Find the toggle switch next to your alert",
+"Click it to disable",
+"<span class='expect'>Expected: toggle moves to off position, 'Paused' badge appears</span>",
+"Click again to re-enable",
+"<span class='expect'>Expected: toggle moves to on position, 'Paused' badge disappears</span>"
+]},
+{id:"alert-delete",label:"Delete an alert",steps:[
+"Click 'Delete' on an alert",
+"<span class='expect'>Expected: confirmation dialog 'Delete this alert?'</span>",
+"Click OK",
+"<span class='expect'>Expected: alert removed from the list, counter decrements</span>"
+]}
+]},{name:"Tier Limits",items:[
+{id:"alert-limit-free",label:"Free tier: 1 alert limit",steps:[
+"Sign in as <code>+free</code> user",
+"Create 1 alert",
+"Try to create a second alert",
+"<span class='expect'>Expected: 'Upgrade to create more alerts' link shown instead of 'Create' button</span>",
+"<span class='expect'>Expected: link goes to /pricing</span>",
+"Clean up: delete the alert"
+]},
+{id:"alert-limit-pro",label:"Pro tier: 5 alert limit",steps:[
+"Sign in as <code>+pro</code> user",
+"Create 5 alerts (can use quick names like 'Test 1', 'Test 2', etc.)",
+"Try to create a 6th",
+"<span class='expect'>Expected: upgrade prompt shown at 5</span>",
+"Clean up: delete all test alerts"
+]},
+{id:"alert-limit-ai",label:"AI tier: unlimited alerts",steps:[
+"Sign in as <code>+ai</code> user",
+"Create 6+ alerts",
+"<span class='expect'>Expected: no limit enforced, all created successfully</span>",
+"Clean up: delete test alerts"
+]}
+]},{name:"Embedding Quality",items:[
+{id:"alert-quality-1",label:"Relevant results for specific query",steps:[
+"Create alert with description: <code>Rust CLI tools and terminal utilities</code>",
+"Check preview results",
+"<span class='expect'>Expected: results are Rust repos related to CLI/terminal. No Python, no web frameworks</span>"
+]},
+{id:"alert-quality-2",label:"Negation handling (KNOWN LIMITATION)",steps:[
+"Create alert with description: <code>Reinforcement Learning frameworks not for LLMs or agents</code>",
+"Check preview results",
+"<span class='expect'>Expected: mostly RL-related repos. Some agent-related results may appear - this is a known limitation of embedding similarity (embeddings don't understand negation)</span>",
+"<span class='expect'>KNOWN LIMITATION: mark as PASSED if results are predominantly RL-focused even if some agent repos appear</span>"
+]},
+{id:"alert-quality-3",label:"Deterministic results",steps:[
+"Note the preview results for a query",
+"Delete the alert, create it again with the exact same description",
+"<span class='expect'>Expected: same results in the same order (embedding search is deterministic)</span>"
+]}
+]},{name:"Navbar",items:[
+{id:"alert-nav-visible",label:"Alerts link visibility",steps:[
+"Sign in - check navbar",
+"<span class='expect'>Expected: 'Alerts' link visible</span>",
+"Sign out - check navbar",
+"<span class='expect'>Expected: 'Alerts' link hidden</span>"
+]}
+]}]},
+
+{title:"9. Badges (v1.8.5)",groups:[{name:"Badge Rendering",items:[
+{id:"badge-grade",label:"Grade badge",steps:[
+"Open in browser: <code>https://api-staging.oosmetrics.com/api/v1/badge/torvalds/linux?metric=grade</code>",
+"<span class='expect'>Expected: SVG image renders with 'oosmetrics' on the left and a letter grade (S/A/B/C/D) with color on the right</span>"
+]},
+{id:"badge-accel",label:"Acceleration badge",steps:[
+"Open: <code>https://api-staging.oosmetrics.com/api/v1/badge/torvalds/linux?metric=acceleration</code>",
+"<span class='expect'>Expected: SVG with acceleration label (Surging/Rising/Steady/Declining) and matching color</span>"
+]},
+{id:"badge-growth",label:"Growth badge",steps:[
+"Open: <code>https://api-staging.oosmetrics.com/api/v1/badge/torvalds/linux?metric=growth</code>",
+"<span class='expect'>Expected: SVG showing +X.X%/wk (green if positive, red if negative)</span>"
+]},
+{id:"badge-orig",label:"Originality badge",steps:[
+"Open: <code>https://api-staging.oosmetrics.com/api/v1/badge/torvalds/linux?metric=originality</code>",
+"<span class='expect'>Expected: SVG showing a number 0-100 with color (gold >80, green >60, blue >40, gray below)</span>"
+]},
+{id:"badge-default",label:"Default metric (no param)",steps:[
+"Open: <code>https://api-staging.oosmetrics.com/api/v1/badge/torvalds/linux</code>",
+"<span class='expect'>Expected: defaults to grade badge (same as ?metric=grade)</span>"
+]},
+{id:"badge-404",label:"Nonexistent repo badge",steps:[
+"Open: <code>https://api-staging.oosmetrics.com/api/v1/badge/nonexistent/repo</code>",
+"<span class='expect'>Expected: gray badge showing 'oosmetrics | N/A' (not a 404 error page)</span>"
+]},
+{id:"badge-headers",label:"Badge response headers",steps:[
+"Open DevTools (F12) and go to the Network tab",
+"Enter this URL in the browser: <code>https://api-staging.oosmetrics.com/api/v1/badge/torvalds/linux?metric=grade</code>",
+"In the Network tab, click on the request for the badge (it will be the page URL itself)",
+"Click the 'Headers' sub-tab and scroll to 'Response Headers'",
+"<span class='expect'>Expected: Content-Type header is image/svg+xml</span>",
+"<span class='expect'>Expected: Cache-Control header contains max-age=300 and s-maxage=3600</span>",
+"Alternative: run <code>curl -sI 'https://api-staging.oosmetrics.com/api/v1/badge/torvalds/linux?metric=grade'</code> and check headers"
+]}
+]}]},
+
+{title:"10. OG Images (v1.8.5)",groups:[{name:"OG Image Rendering",items:[
+{id:"og-render",label:"Dynamic OG image for a repo",steps:[
+"Open in browser: <code>https://staging.oosmetrics.com/api/og/repo/torvalds/linux</code>",
+"<span class='expect'>Expected: 1200x630 PNG image with dark background, repo name, metrics, grade pill</span>"
+]},
+{id:"og-chart",label:"Star history chart in OG image",steps:[
+"Look at the OG image for a repo with history data",
+"<span class='expect'>Expected: subtle blue area chart visible in the background (bottom-right area)</span>"
+]},
+{id:"og-fallback",label:"Fallback for nonexistent repo",steps:[
+"Open: <code>https://staging.oosmetrics.com/api/og/repo/nonexistent/repo</code>",
+"<span class='expect'>Expected: fallback OG image (oosmetrics branding, not a 500 error)</span>"
+]},
+{id:"og-meta",label:"Meta tags on repo page",steps:[
+"Open any repo detail page",
+"View page source (Ctrl+U) or inspect with DevTools",
+"Search for 'og:image'",
+"<span class='expect'>Expected: og:image points to /api/og/repo/{owner}/{name}</span>",
+"Search for 'twitter:card'",
+"<span class='expect'>Expected: twitter:card is summary_large_image</span>"
+]}
+]}]},
+
+{title:"11. AI Analysis (v1.9)",groups:[{name:"Tier Gating",items:[
+{id:"analysis-free",label:"Free user sees upgrade teaser",steps:[
+"Sign in as <code>+free</code> user",
+"Go to any repo detail page",
+"Scroll to below the AI Overview section",
+"<span class='expect'>Expected: 'AI Analysis' box with 'Upgrade to Pro to unlock' link</span>",
+"<span class='expect'>Expected: no 'Generate analysis' button visible</span>"
+]},
+{id:"analysis-pro-visible",label:"Pro user sees generate button",steps:[
+"Sign in as <code>+pro</code> user",
+"Go to any repo detail page",
+"<span class='expect'>Expected: 'AI Analysis' section with text input ('Any specific focus?') and 'Generate analysis' button</span>"
+]}
+]},{name:"Report Generation",items:[
+{id:"analysis-generate",label:"Generate analysis (no focus)",steps:[
+"Sign in as <code>+pro</code> or <code>+ai</code> test user (NOT the free tier user)",
+"Go to any repo detail page. Try e.g. <code>/repo/expressjs/express</code> or <code>/repo/pupil-labs/pupil</code>",
+"Leave the focus input empty",
+"Click 'Generate analysis'",
+"<span class='expect'>Expected: loading skeleton appears with message: 'Generating analysis - this may take up to a minute. You can leave the page and come back later.'</span>",
+"Wait 30-90 seconds. The page polls automatically every 5 seconds.",
+"<span class='expect'>Expected: report appears with 6 collapsible sections: Overview, Tech Stack, Getting Started, Health Signals, Alternatives, License</span>",
+"<span class='expect'>Expected: each section has meaningful content, not placeholder text</span>",
+"If it takes longer than 2 minutes, leave the page and come back - the cached result should load instantly"
+]},
+{id:"analysis-sections",label:"Verify report content quality",steps:[
+"Read the Overview section",
+"<span class='expect'>Expected: describes what the repo does, who it's for, possible applications, creative use cases</span>",
+"Read Tech Stack section",
+"<span class='expect'>Expected: lists actual dependencies from the repo's package.json/go.mod/etc., not guesses</span>",
+"Read Alternatives section",
+"<span class='expect'>Expected: lists 2-3 similar repos with metrics comparison (growth rates, stars)</span>"
+]},
+{id:"analysis-focus",label:"Generate analysis with focus area",steps:[
+"On the same or different repo, enter focus text: <code>evaluating for a high-throughput event pipeline</code>",
+"Click 'Generate analysis'",
+"<span class='expect'>Expected: report loads with the 6 standard sections PLUS a 'Focus' section at the bottom</span>",
+"<span class='expect'>Expected: focus section heading shows your input text in blue</span>",
+"<span class='expect'>Expected: focus response addresses your specific question</span>"
+]},
+{id:"analysis-usage",label:"Usage counter",steps:[
+"After generating an analysis",
+"<span class='expect'>Expected: usage counter shows 'X of 5 used today' (pro) or 'X of 25 used today' (ai)</span>"
+]}
+]},{name:"Caching & Regeneration",items:[
+{id:"analysis-cache",label:"Cached report loads instantly",steps:[
+"Navigate away from the repo page",
+"Navigate back to the same repo",
+"<span class='expect'>Expected: the analysis report appears instantly (no loading skeleton, no generation wait)</span>",
+"<span class='expect'>Expected: usage counter does NOT increment (cache hit is free)</span>"
+]},
+{id:"analysis-regen",label:"Regenerate button",steps:[
+"Scroll to the bottom of the analysis report",
+"<span class='expect'>Expected: 'Regenerate with latest data' link visible (subtle, not prominent)</span>",
+"<span class='expect'>Expected: 'Generated [date]' text showing when the report was created</span>",
+"Click 'Regenerate with latest data'",
+"<span class='expect'>Expected: new report generated, usage counter increments by 1</span>"
+]}
+]}]},
+
+{title:"12. API Keys (v2.0)",groups:[{name:"Key Management",items:[
+{id:"key-section",label:"API Keys section on profile",steps:[
+"Sign in and go to <code>/profile</code>",
+"<span class='expect'>Expected: 'API Keys' section visible with 'Create key' button and name input</span>"
+]},
+{id:"key-create",label:"Create an API key",steps:[
+"Enter name: <code>test-key</code> in the name input",
+"Click 'Create key'",
+"<span class='expect'>Expected: green-bordered box appears showing the full key starting with 'oosm_'</span>",
+"<span class='expect'>Expected: warning text 'Copy this key now - it will not be shown again'</span>",
+"<span class='expect'>Expected: 'Copy' button next to the key</span>",
+"Click 'Copy' and paste somewhere",
+"<span class='expect'>Expected: clipboard contains the full key (40 chars, starts with oosm_)</span>"
+]},
+{id:"key-list",label:"Key appears in list",steps:[
+"After creating a key, look at the key list below",
+"<span class='expect'>Expected: key shown with prefix (oosm_XXXX...), name 'test-key', creation date</span>",
+"<span class='expect'>Expected: 'Revoke' button visible per key</span>"
+]},
+{id:"key-instructions",label:"Claude Code setup instructions",steps:[
+"Look for 'Claude Code setup instructions' expandable section",
+"Click to expand",
+"<span class='expect'>Expected: JSON config snippet showing how to add the MCP server to Claude Code settings</span>"
+]},
+{id:"key-revoke",label:"Revoke a key",steps:[
+"Click 'Revoke' on the test key",
+"<span class='expect'>Expected: confirmation dialog</span>",
+"Confirm",
+"<span class='expect'>Expected: key removed from the list</span>"
+]}
+]},{name:"API Key Authentication",items:[
+{id:"key-auth",label:"Authenticate with API key",steps:[
+"Create a new key and copy it",
+"Run in terminal: <code>curl -H 'Authorization: Bearer oosm_YOUR_KEY' https://api-staging.oosmetrics.com/api/v1/feed?limit=2</code>",
+"<span class='expect'>Expected: JSON response with feed data (not 401)</span>"
+]},
+{id:"key-invalid",label:"Invalid key returns 401",steps:[
+"Run: <code>curl -H 'Authorization: Bearer oosm_invalidkey123456789012345678901' https://api-staging.oosmetrics.com/api/v1/feed</code>",
+"<span class='expect'>Expected: {\"error\":\"invalid API key\"} with 401 status</span>"
+]},
+{id:"key-revoked",label:"Revoked key stops working",steps:[
+"Create a key, test it works (feed returns data)",
+"Revoke the key on /profile",
+"Try the same curl command",
+"<span class='expect'>Expected: 401 error (key no longer valid)</span>"
+]}
+]}]},
+
+{title:"13. MCP Server (v2.0)",groups:[{name:"Protocol",items:[
+{id:"mcp-init",label:"MCP initialize",steps:[
+"Create an API key and copy it",
+"Run: <code>curl -s -X POST https://api-staging.oosmetrics.com/mcp -H 'Authorization: Bearer oosm_YOUR_KEY' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}'</code>",
+"<span class='expect'>Expected: JSON-RPC response with protocolVersion, capabilities, serverInfo.name='oosmetrics'</span>"
+]},
+{id:"mcp-tools-list",label:"MCP tools/list",steps:[
+"Run: <code>curl -s -X POST https://api-staging.oosmetrics.com/mcp -H 'Authorization: Bearer oosm_YOUR_KEY' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}'</code>",
+"<span class='expect'>Expected: JSON-RPC response listing tool definitions with names, descriptions, input schemas</span>",
+"Count the tools",
+"<span class='expect'>Expected: 7 tools for Pro key, 10 tools for AI key</span>"
+]}
+]},{name:"Tool Calls",items:[
+{id:"mcp-search",label:"search tool",steps:[
+"Run: <code>curl -s -X POST .../mcp -H '...' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"query\":\"web framework\",\"limit\":3}}}'</code>",
+"<span class='expect'>Expected: JSON-RPC result with content[0].text containing repo data</span>"
+]},
+{id:"mcp-get-repo",label:"get_repo tool",steps:[
+"Call tools/call with name='get_repo', arguments={owner:'torvalds',name:'linux'}",
+"<span class='expect'>Expected: detailed repo info with metrics, grades</span>"
+]},
+{id:"mcp-trending",label:"trending tool",steps:[
+"Call tools/call with name='trending', arguments={limit:5}",
+"<span class='expect'>Expected: top 5 repos by growth rate</span>"
+]},
+{id:"mcp-alternatives",label:"alternatives tool",steps:[
+"Call tools/call with name='alternatives', arguments={owner:'expressjs',name:'express'}",
+"<span class='expect'>Expected: similar repos (other web frameworks) via embedding similarity</span>"
+]},
+{id:"mcp-ai-gate",label:"AI-only tool gating",steps:[
+"With a Pro-tier API key, call: name='existence_check', arguments={description:'a todo app'}",
+"<span class='expect'>Expected: JSON-RPC error with message about upgrading to AI tier</span>"
+]}
+]}]},
+
+{title:"14. SEO Pages (v2.0)",groups:[{name:"Browse API",items:[
+{id:"seo-browse",label:"Browse API returns data",steps:[
+"Run: <code>curl https://api-staging.oosmetrics.com/api/v1/browse</code>",
+"<span class='expect'>Expected: JSON with 'languages' array (slug, name, count) and 'categories' array with children</span>",
+"<span class='expect'>Expected: no language with fewer than 50 repos</span>",
+"Check for C++: <span class='expect'>Expected: slug is 'cpp', name is 'C++'</span>"
+]}
+]},{name:"Trending Pages",items:[
+{id:"seo-trending-index",label:"/trending index page",steps:[
+"Open <code>https://staging.oosmetrics.com/trending</code>",
+"<span class='expect'>Expected: page lists all available languages as cards/links with repo counts</span>"
+]},
+{id:"seo-trending-python",label:"/trending/python",steps:[
+"Open <code>/trending/python</code>",
+"<span class='expect'>Expected: conversational intro paragraph (not AI-report style)</span>",
+"<span class='expect'>Expected: repo cards below showing Python repos sorted by growth</span>",
+"View page source, check title tag",
+"<span class='expect'>Expected: title contains 'Trending Python Repos'</span>"
+]},
+{id:"seo-trending-cpp",label:"/trending/cpp maps to C++",steps:[
+"Open <code>/trending/cpp</code>",
+"<span class='expect'>Expected: shows C++ repos (not empty, not error)</span>"
+]},
+{id:"seo-trending-404",label:"/trending/nonexistent returns 404",steps:[
+"Open <code>/trending/nonexistent</code>",
+"<span class='expect'>Expected: Next.js 404 page (not a blank page or error)</span>"
+]}
+]},{name:"Category Pages",items:[
+{id:"seo-cat-index",label:"/category index page",steps:[
+"Open <code>/category</code>",
+"<span class='expect'>Expected: lists all top-level categories with subcategories as nested links</span>"
+]},
+{id:"seo-cat-parent",label:"/category/ai-ml (parent)",steps:[
+"Open <code>/category/ai-ml</code>",
+"<span class='expect'>Expected: conversational intro, subcategory pills/links (LLMs, Agents, Computer Vision, etc.) above the feed</span>",
+"<span class='expect'>Expected: repo cards showing AI/ML repos (includes all subcategories)</span>"
+]},
+{id:"seo-cat-child",label:"/category/ai-ml/agents (child)",steps:[
+"Open <code>/category/ai-ml/agents</code>",
+"<span class='expect'>Expected: shows only AI agent repos, not general AI/ML</span>"
+]},
+{id:"seo-cat-404",label:"/category/nonexistent returns 404",steps:[
+"Open <code>/category/nonexistent</code>",
+"<span class='expect'>Expected: 404 page</span>"
+]}
+]},{name:"Navigation & Sitemap",items:[
+{id:"seo-browse-nav",label:"Browse dropdown in navbar",steps:[
+"Look for 'Browse' in the navbar",
+"Click it",
+"<span class='expect'>Expected: dropdown appears with two columns - languages (left) and categories (right)</span>",
+"<span class='expect'>Expected: 'All languages' and 'All categories' links at the bottom</span>"
+]},
+{id:"seo-browse-links",label:"Dropdown links work",steps:[
+"Click any language in the dropdown (e.g. Python)",
+"<span class='expect'>Expected: navigates to /trending/python</span>",
+"Go back, click any category",
+"<span class='expect'>Expected: navigates to /category/{slug}</span>"
+]},
+{id:"seo-sitemap",label:"Sitemap includes SEO pages",steps:[
+"Open <code>/sitemap/0</code> (or view source)",
+"<span class='expect'>Expected: XML sitemap includes /trending, /category URLs</span>",
+"Search for 'trending/python'",
+"<span class='expect'>Expected: found with changefreq=daily and priority=0.7</span>"
+]}
+]}]},
+
+{title:"15. Smart Search (v2.1)",groups:[{name:"Semantic Search",items:[
+{id:"smart-nl",label:"Natural language query returns semantic results",steps:[
+"Type <code>fast rust web framework gaining momentum</code> in the search bar",
+"Press Enter",
+"<span class='expect'>Expected: results include Rust web frameworks (actix, axum, etc.) even if they don't contain the exact words 'fast' or 'momentum'</span>",
+"<span class='expect'>Expected: results are different (better) than a simple keyword search would produce</span>"
+]},
+{id:"smart-reponame",label:"owner/name query uses keyword search",steps:[
+"Type <code>torvalds/linux</code> in the search bar and press Enter",
+"<span class='expect'>Expected: keyword search used (because query contains /), shows the linux repo</span>"
+]},
+{id:"smart-fallback",label:"Graceful fallback when embeddings unavailable",steps:[
+"If embeddings are not loaded (or on a repo not in repo_embeddings)",
+"<span class='expect'>Expected: falls back to keyword search silently, no error shown</span>"
+]},
+{id:"smart-cards",label:"Results use same repo cards as feed",steps:[
+"After a smart search, look at the result cards",
+"<span class='expect'>Expected: identical card format to the homepage feed (growth rate, stars, grade pills, acceleration label)</span>"
+]}
+]}]},
+
+{title:"16. Email Features",groups:[{name:"Digest Emails",items:[
+{id:"email-social",label:"Social digest (admin trigger)",steps:[
+"SSH to VPS or run: <code>curl -X POST http://api-staging:8081/admin/social-digest/run -H 'Authorization: Bearer ADMIN_SECRET' -H 'Content-Type: application/json' -d '{\"sort_by\":\"growth\"}'</code>",
+"<span class='expect'>Expected: {\"status\":\"digest started\"} response</span>",
+"Check the configured email inbox",
+"<span class='expect'>Expected: LinkedIn-style digest email arrives with top repos</span>"
+]},
+{id:"email-weekly",label:"Weekly digest (admin trigger)",steps:[
+"Run: <code>curl -X POST http://api-staging:8081/admin/weekly-digest/run -H 'Authorization: Bearer ADMIN_SECRET'</code>",
+"<span class='expect'>Expected: {\"status\":\"ok\"} or accepted response</span>",
+"Check email",
+"<span class='expect'>Expected: weekly digest email arrives</span>"
+]}
+]}]},
+
+{title:"17. Description Rate Limit",groups:[{name:"Rate Limit Behavior",items:[
+{id:"desc-bypass",label:"Admin bypass works",steps:[
+"Run: <code>curl -X POST 'http://api-staging:8081/admin/describe?owner=TheAlgorithms&name=website' -H 'Authorization: Bearer ADMIN_SECRET'</code>",
+"<span class='expect'>Expected: {\"status\":\"generating\"} - bypasses rate limit</span>",
+"Wait 30s, then: <code>curl http://api-staging:8081/api/v1/repos/TheAlgorithms/website/description</code>",
+"<span class='expect'>Expected: {\"available\":true, ...} with AI-generated description</span>"
+]},
+{id:"desc-user-bypass",label:"User bypass for alessandro.flati@gmail.com",steps:[
+"Sign in as alessandro.flati@gmail.com on staging",
+"Visit a repo without a cached description",
+"<span class='expect'>Expected: description generates even if rate limit is exhausted (session-based bypass)</span>"
+]},
+{id:"desc-overloaded",label:"Rate limited message shown",steps:[
+"As a non-admin user (or in incognito), rapidly visit 6+ repos without cached descriptions within 1 minute",
+"<span class='expect'>Expected: after 5 generations, subsequent repos show 'We are currently overloaded with requests. Please check back later' instead of silent failure</span>"
+]}
+]}]}
+];
+
+const STORAGE_KEY = 'oosmetrics-test-state-v2';
+function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; } }
+function saveState(s) { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
+function resetAll() { if (!confirm('Reset all test results?')) return; localStorage.removeItem(STORAGE_KEY); render(); }
+
+function updateProgress() {
+  const state = loadState();
+  let total=0, passed=0, failed=0;
+  T.forEach(s => s.groups.forEach(g => g.items.forEach(i => { total++; const st=state[i.id]; if(st?.status==='passed') passed++; if(st?.status==='failed') failed++; })));
+  const pending = total-passed-failed;
+  const pct = total>0 ? Math.round((passed/total)*100) : 0;
+  document.getElementById('progressFill').style.width = pct+'%';
+  document.getElementById('progressPct').textContent = pct+'%';
+  document.getElementById('passCount').textContent = passed+' passed';
+  document.getElementById('failCount').textContent = failed+' failed';
+  document.getElementById('pendingCount').textContent = pending+' pending';
+}
+
+function render() {
+  const container = document.getElementById('sections');
+  container.innerHTML = '';
+  const state = loadState();
+
+  T.forEach(section => {
+    let sT=0,sP=0,sF=0;
+    section.groups.forEach(g=>g.items.forEach(i=>{sT++;const s=state[i.id];if(s?.status==='passed')sP++;if(s?.status==='failed')sF++;}));
+    const badge = sF>0?` (${sP}/${sT}, ${sF} failed)`:sP===sT&&sT>0?` (${sT}/${sT} done)`:` (${sP}/${sT})`;
+
+    const div=document.createElement('div'); div.className='section';
+    const h2=document.createElement('h2');
+    h2.innerHTML=`<span class="arrow">&#9660;</span>${section.title}<span style="font-size:12px;color:var(--secondary);font-weight:normal">${badge}</span>`;
+    h2.onclick=()=>{div.classList.toggle('collapsed');h2.classList.toggle('collapsed');};
+    div.appendChild(h2);
+
+    const itemsDiv=document.createElement('div'); itemsDiv.className='items';
+    section.groups.forEach(group=>{
+      const h3=document.createElement('h3'); h3.textContent=group.name; itemsDiv.appendChild(h3);
+      group.items.forEach(item=>{
+        const s=state[item.id]||{status:'pending',note:''};
+        const el=document.createElement('div');
+        el.className='item'+(s.status==='passed'?' checked':'')+(s.status==='failed'?' failed':'');
+
+        const cb=document.createElement('input');cb.type='checkbox';cb.checked=s.status==='passed';
+        cb.onchange=()=>{const st=loadState();st[item.id]={status:cb.checked?'passed':'pending',note:''};saveState(st);render();};
+
+        const labelDiv=document.createElement('div');labelDiv.style.flex='1';
+        const labelSpan=document.createElement('div');labelSpan.className='label';labelSpan.textContent=item.label;
+        labelDiv.appendChild(labelSpan);
+
+        if(item.steps){
+          const stepsDiv=document.createElement('div');stepsDiv.className='steps';
+          const ol=document.createElement('ol');
+          item.steps.forEach(step=>{const li=document.createElement('li');li.innerHTML=step;ol.appendChild(li);});
+          stepsDiv.appendChild(ol);
+          labelDiv.appendChild(stepsDiv);
+        }
+
+        if(s.status==='failed'&&s.note){
+          const noteDiv=document.createElement('div');noteDiv.className='fail-note';noteDiv.textContent='Issue: '+s.note;labelDiv.appendChild(noteDiv);
+        }
+
+        const failBtn=document.createElement('button');failBtn.className='fail-btn';
+        failBtn.textContent=s.status==='failed'?'Unfail':'Fail';
+        failBtn.onclick=(e)=>{
+          e.stopPropagation();
+          const st=loadState();
+          if(s.status==='failed'){st[item.id]={status:'pending',note:''};}
+          else{const note=prompt('What went wrong? (optional)');st[item.id]={status:'failed',note:note||''};}
+          saveState(st);render();
+        };
+
+        el.appendChild(cb);el.appendChild(labelDiv);el.appendChild(failBtn);
+        itemsDiv.appendChild(el);
+      });
+    });
+    div.appendChild(itemsDiv);container.appendChild(div);
+  });
+  updateProgress();
+}
+// Pre-load QA tester results. Merged once on first load - your results take precedence.
+(function importQAResults() {
+  const qa = {"auth-gh-1":{"status":"passed","note":""},"auth-gh-2":{"status":"passed","note":""},"auth-go-1":{"status":"passed","note":""},"auth-link-1":{"status":"passed","note":""},"magic-form":{"status":"passed","note":""},"magic-send":{"status":"passed","note":""},"magic-alt":{"status":"passed","note":""},"magic-email":{"status":"passed","note":""},"magic-click":{"status":"passed","note":""},"magic-toast":{"status":"passed","note":""},"magic-toast-no-repeat":{"status":"passed","note":""},"magic-tier":{"status":"passed","note":""},"legal-terms-link":{"status":"passed","note":""},"legal-terms":{"status":"passed","note":""},"legal-privacy":{"status":"passed","note":""},"legal-cookies":{"status":"passed","note":""},"feed-load":{"status":"passed","note":""},"feed-sort-growth":{"status":"passed","note":""},"feed-sort-abs":{"status":"passed","note":""},"feed-sort-accel":{"status":"passed","note":""},"feed-sort-stars":{"status":"passed","note":""},"feed-rising":{"status":"passed","note":""},"repo-detail":{"status":"passed","note":""},"repo-charts":{"status":"passed","note":"Expected empty on staging (no workers)"},"repo-license":{"status":"passed","note":""},"repo-ai-overview":{"status":"passed","note":""},"search-suggest":{"status":"passed","note":""},"search-submit":{"status":"passed","note":""},"search-repo-name":{"status":"passed","note":""},"watch-add":{"status":"passed","note":""},"watch-persist":{"status":"passed","note":""},"watch-restore":{"status":"passed","note":""},"watch-anon":{"status":"passed","note":""},"stripe-pricing":{"status":"passed","note":""},"stripe-expand":{"status":"passed","note":""},"stripe-checkout-pro":{"status":"passed","note":""},"stripe-checkout-ai":{"status":"passed","note":""},"stripe-portal":{"status":"passed","note":"Expected 400 for test users without Stripe checkout"},"alert-nav":{"status":"passed","note":""},"alert-create-step1":{"status":"passed","note":""},"alert-create-step2":{"status":"passed","note":""},"alert-create-save":{"status":"passed","note":""},"alert-edit":{"status":"passed","note":""},"alert-toggle":{"status":"passed","note":""},"alert-delete":{"status":"passed","note":""},"alert-limit-free":{"status":"passed","note":""},"alert-limit-pro":{"status":"passed","note":""},"alert-limit-ai":{"status":"passed","note":""},"alert-quality-1":{"status":"passed","note":""},"alert-quality-2":{"status":"passed","note":""},"alert-quality-3":{"status":"passed","note":""},"alert-nav-visible":{"status":"passed","note":""},"badge-grade":{"status":"passed","note":""},"badge-accel":{"status":"passed","note":""},"badge-growth":{"status":"passed","note":""},"badge-orig":{"status":"passed","note":""},"badge-default":{"status":"passed","note":""},"badge-404":{"status":"passed","note":""},"badge-headers":{"status":"passed","note":""},"og-render":{"status":"passed","note":""},"og-chart":{"status":"passed","note":""},"og-fallback":{"status":"passed","note":""},"og-meta":{"status":"passed","note":""},"analysis-free":{"status":"passed","note":""},"analysis-pro-visible":{"status":"passed","note":""},"key-section":{"status":"passed","note":""},"key-instructions":{"status":"passed","note":""},"key-create":{"status":"passed","note":""},"key-list":{"status":"passed","note":""},"key-revoke":{"status":"passed","note":""},"key-auth":{"status":"passed","note":""},"key-invalid":{"status":"passed","note":""},"key-revoked":{"status":"passed","note":""},"mcp-init":{"status":"passed","note":""},"mcp-tools-list":{"status":"passed","note":""},"mcp-search":{"status":"passed","note":""},"mcp-get-repo":{"status":"passed","note":""},"mcp-trending":{"status":"passed","note":""},"mcp-alternatives":{"status":"passed","note":""},"mcp-ai-gate":{"status":"passed","note":""},"seo-browse":{"status":"passed","note":""},"seo-trending-index":{"status":"passed","note":""},"seo-trending-python":{"status":"passed","note":""},"seo-trending-cpp":{"status":"passed","note":""},"seo-trending-404":{"status":"passed","note":""},"seo-cat-index":{"status":"passed","note":""},"seo-cat-parent":{"status":"passed","note":""},"seo-cat-child":{"status":"passed","note":""},"seo-cat-404":{"status":"passed","note":""},"seo-browse-nav":{"status":"passed","note":""},"seo-browse-links":{"status":"passed","note":""},"seo-sitemap":{"status":"passed","note":""},"smart-nl":{"status":"passed","note":""},"smart-reponame":{"status":"passed","note":""},"smart-cards":{"status":"passed","note":""},"smart-fallback":{"status":"passed","note":""},"email-social":{"status":"passed","note":""},"email-weekly":{"status":"passed","note":""},"desc-user-bypass":{"status":"passed","note":""},"desc-overloaded":{"status":"passed","note":""},"desc-bypass":{"status":"passed","note":""}};
+  const key = 'oosmetrics-test-state-v2-imported';
+  if (localStorage.getItem(key)) return;
+  const existing = loadState();
+  Object.entries(qa).forEach(([id, val]) => {
+    if (!existing[id] || existing[id].status === 'pending') existing[id] = val;
+  });
+  saveState(existing);
+  localStorage.setItem(key, '1');
+})();
+render();
+</script>
+</body>
+</html>

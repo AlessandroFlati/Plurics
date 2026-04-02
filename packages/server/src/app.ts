@@ -4,7 +4,7 @@ import { TmuxManager } from './modules/terminal/tmux-manager.js';
 import { TerminalRegistry } from './modules/terminal/terminal-registry.js';
 import { createWebSocketServer } from './transport/websocket.js';
 
-const PORT = parseInt(process.env.PORT ?? '3001', 10);
+const PORT = parseInt(process.env.PORT ?? '11001', 10);
 
 const app = express();
 const server = http.createServer(app);
