@@ -51,6 +51,16 @@ export class TmuxManager {
     ]);
   }
 
+  async pipePaneToFile(sessionName: string, filePath: string): Promise<void> {
+    await execFileAsync('tmux', [
+      'pipe-pane', '-t', sessionName, '-O', `cat > ${filePath}`,
+    ]);
+  }
+
+  async pipePaneStop(sessionName: string): Promise<void> {
+    await execFileAsync('tmux', ['pipe-pane', '-t', sessionName]);
+  }
+
   async hasSession(sessionName: string): Promise<boolean> {
     try {
       await execFileAsync('tmux', ['has-session', '-t', sessionName]);

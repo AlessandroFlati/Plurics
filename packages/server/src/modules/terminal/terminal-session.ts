@@ -1,4 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
+import { spawn, type ChildProcess } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { TmuxManager } from './tmux-manager.js';
 import {
   type TerminalInfo,
@@ -22,8 +26,9 @@ export class TerminalSession {
   private readonly createdAt: number;
   private readonly tmux: TmuxManager;
   private readonly listeners: Set<DataCallback> = new Set();
-  private poller: ReturnType<typeof setInterval> | null = null;
-  private lastCaptureLength = 0;
+  private pipeProcess: ChildProcess | null = null;
+  private pipePath: string | null = null;
+  private exitPoller: ReturnType<typeof setInterval> | null = null;
 
   private constructor(
     id: string,
@@ -52,7 +57,8 @@ export class TerminalSession {
 
     const tmuxSession = await tmux.createSession(name, command, cols, rows, cwd);
     const session = new TerminalSession(id, name, tmuxSession, cols, rows, tmux);
-    session.startPolling();
+    await session.startPipeOutput();
+    session.startExitPoller();
     return session;
   }
 
@@ -64,7 +70,8 @@ export class TerminalSession {
     const id = uuidv4();
     const name = tmuxSessionName.replace(TMUX_PREFIX, '');
     const session = new TerminalSession(id, name, tmuxSessionName, DEFAULT_COLS, DEFAULT_ROWS, tmux);
-    session.startPolling();
+    await session.startPipeOutput();
+    session.startExitPoller();
     return session;
   }
 
@@ -100,7 +107,8 @@ export class TerminalSession {
   }
 
   async destroy(): Promise<void> {
-    this.stopPolling();
+    this.stopPipeOutput();
+    this.stopExitPoller();
     this.status = 'exited';
     this.listeners.clear();
     try {
@@ -110,33 +118,79 @@ export class TerminalSession {
     }
   }
 
-  private startPolling(): void {
-    this.poller = setInterval(async () => {
+  /**
+   * Use `tmux pipe-pane` to stream raw PTY output through a FIFO.
+   * This captures the actual escape sequences that xterm.js needs
+   * to render TUI apps correctly (unlike capture-pane which strips them).
+   */
+  private async startPipeOutput(): Promise<void> {
+    // Create a FIFO (named pipe) for this session
+    const tmpDir = os.tmpdir();
+    this.pipePath = path.join(tmpDir, `caam-pipe-${this.id}`);
+
+    // Create FIFO
+    await new Promise<void>((resolve, reject) => {
+      const mkfifo = spawn('mkfifo', [this.pipePath!]);
+      mkfifo.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`mkfifo failed with code ${code}`));
+      });
+    });
+
+    // Tell tmux to pipe the pane output to our FIFO
+    await this.tmux.pipePaneToFile(this.tmuxSession, this.pipePath);
+
+    // Open the FIFO for reading (non-blocking via a child cat process)
+    this.pipeProcess = spawn('cat', [this.pipePath], { stdio: ['ignore', 'pipe', 'ignore'] });
+
+    this.pipeProcess.stdout!.on('data', (chunk: Buffer) => {
+      const data = chunk.toString('utf-8');
+      for (const cb of this.listeners) {
+        cb(data);
+      }
+    });
+
+    this.pipeProcess.on('close', () => {
+      // Pipe closed -- session likely ended
+    });
+  }
+
+  private stopPipeOutput(): void {
+    // Stop tmux pipe-pane
+    this.tmux.pipePaneStop(this.tmuxSession).catch(() => {});
+
+    if (this.pipeProcess) {
+      this.pipeProcess.kill();
+      this.pipeProcess = null;
+    }
+
+    // Clean up FIFO
+    if (this.pipePath) {
+      try { fs.unlinkSync(this.pipePath); } catch { /* may already be gone */ }
+      this.pipePath = null;
+    }
+  }
+
+  private startExitPoller(): void {
+    // Check periodically if the tmux session is still alive
+    this.exitPoller = setInterval(async () => {
       try {
         const exists = await this.tmux.hasSession(this.tmuxSession);
         if (!exists) {
           this.status = 'exited';
-          this.stopPolling();
-          return;
-        }
-        const content = await this.tmux.capturePane(this.tmuxSession);
-        if (content.length !== this.lastCaptureLength) {
-          const newContent = content.slice(this.lastCaptureLength);
-          this.lastCaptureLength = content.length;
-          for (const cb of this.listeners) {
-            cb(newContent);
-          }
+          this.stopExitPoller();
+          this.stopPipeOutput();
         }
       } catch {
-        // Ignore transient capture failures
+        // ignore
       }
-    }, 100);
+    }, 2000);
   }
 
-  private stopPolling(): void {
-    if (this.poller) {
-      clearInterval(this.poller);
-      this.poller = null;
+  private stopExitPoller(): void {
+    if (this.exitPoller) {
+      clearInterval(this.exitPoller);
+      this.exitPoller = null;
     }
   }
 }
