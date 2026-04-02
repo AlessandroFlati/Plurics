@@ -79,6 +79,9 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
     // Initial fit + server handshake after layout settles
     setTimeout(() => {
       doFit();
+      // Clear the terminal buffer before subscribing so the SIGWINCH
+      // redraw from the server renders onto a clean slate
+      xterm.reset();
       ws?.send({
         type: 'terminal:resize',
         terminalId: terminal.id,
