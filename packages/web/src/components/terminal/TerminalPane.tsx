@@ -43,27 +43,25 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
 
     xtermRef.current = xterm;
 
-    // Defer fit() to next frame so the container has dimensions.
-    // Always send an explicit resize after fit, because onResize only fires
-    // when dimensions actually change -- if the default matches, it won't fire,
-    // and the server needs the first resize to start pipe-pane + launch the command.
-    requestAnimationFrame(() => {
+    // Defer fit() to allow the grid layout to settle, then fit + send
+    // resize and subscribe. Two rAF calls ensure layout is complete.
+    const sendInitial = () => {
       try {
         fitAddon.fit();
-        // Send resize (triggers pipe-pane + command start for new terminals)
         ws?.send({
           type: 'terminal:resize',
           terminalId: terminal.id,
           cols: xterm.cols,
           rows: xterm.rows,
         });
-        // Subscribe to output (sends current screen content + ongoing output)
         ws?.send({
           type: 'terminal:subscribe',
           terminalId: terminal.id,
         });
       } catch { /* container may not be ready */ }
-    });
+    };
+    // Double rAF: first lets React commit, second lets the browser layout
+    requestAnimationFrame(() => requestAnimationFrame(sendInitial));
 
     xterm.onData((data) => {
       ws?.send({
