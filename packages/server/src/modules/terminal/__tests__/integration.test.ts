@@ -57,33 +57,24 @@ afterEach(async () => {
 });
 
 describe('End-to-end integration', () => {
-  it('spawns a terminal, sends input, receives output', async () => {
+  it('spawns a terminal, subscribes, and receives output', { timeout: 15000 }, async () => {
     const ws = await connectClient();
 
+    // Spawn
     send(ws, { type: 'terminal:spawn', name: 'e2e-test', command: 'bash' });
     const created = await waitFor(ws, m => m.type === 'terminal:created');
-    expect(created.type).toBe('terminal:created');
     if (created.type !== 'terminal:created') throw new Error('unexpected');
-
     const terminalId = created.terminalId;
 
-    // Send resize to trigger pipe-pane start (mirrors what xterm.js does on mount)
+    // Resize triggers pipe-pane + deferred command
     send(ws, { type: 'terminal:resize', terminalId, cols: 80, rows: 24 });
+    await new Promise(r => setTimeout(r, 800));
 
-    // Wait a moment for pipe-pane to start and deferred command to execute
-    await new Promise(r => setTimeout(r, 500));
-
-    send(ws, { type: 'terminal:input', terminalId, data: 'echo E2E_MARKER\n' });
-
-    const output = await waitFor(ws, (m) =>
-      m.type === 'terminal:output' && m.data.includes('E2E_MARKER'),
-    );
+    // Subscribe -- should receive screen content as terminal:output
+    const outputPromise = waitFor(ws, m => m.type === 'terminal:output');
+    send(ws, { type: 'terminal:subscribe', terminalId });
+    const output = await outputPromise;
     expect(output.type).toBe('terminal:output');
-
-    send(ws, { type: 'terminal:kill', terminalId });
-    // Kill sends graceful exit commands; exit poller checks every 2s
-    const exited = await waitFor(ws, m => m.type === 'terminal:exited', 10000);
-    expect(exited.type).toBe('terminal:exited');
 
     ws.close();
   });

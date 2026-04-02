@@ -45,6 +45,13 @@ export class TmuxManager {
     return stdout;
   }
 
+  async capturePaneWithEscapes(sessionName: string): Promise<string> {
+    const { stdout } = await execFileAsync('tmux', [
+      'capture-pane', '-t', sessionName, '-p', '-e',
+    ]);
+    return stdout;
+  }
+
   async resizePane(sessionName: string, cols: number, rows: number): Promise<void> {
     await execFileAsync('tmux', [
       'resize-window', '-t', sessionName, '-x', String(cols), '-y', String(rows),

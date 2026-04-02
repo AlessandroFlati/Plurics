@@ -60,22 +60,7 @@ async function handleMessage(
         terminalId: info.id,
         name: info.name,
       });
-      const session = registry.get(info.id)!;
-      const unsubData = session.onData((data) => {
-        sendMessage(ws, {
-          type: 'terminal:output',
-          terminalId: info.id,
-          data,
-        });
-      });
-      const unsubExit = session.onExit(() => {
-        sendMessage(ws, {
-          type: 'terminal:exited',
-          terminalId: info.id,
-          exitCode: 0,
-        });
-      });
-      cleanups.push(unsubData, unsubExit);
+      // Client should send terminal:subscribe to start receiving output
       break;
     }
 
@@ -86,22 +71,7 @@ async function handleMessage(
         terminalId: info.id,
         name: info.name,
       });
-      const session = registry.get(info.id)!;
-      const unsubData = session.onData((data) => {
-        sendMessage(ws, {
-          type: 'terminal:output',
-          terminalId: info.id,
-          data,
-        });
-      });
-      const unsubExit = session.onExit(() => {
-        sendMessage(ws, {
-          type: 'terminal:exited',
-          terminalId: info.id,
-          exitCode: 0,
-        });
-      });
-      cleanups.push(unsubData, unsubExit);
+      // Client should send terminal:subscribe to start receiving output
       break;
     }
 
@@ -136,6 +106,40 @@ async function handleMessage(
       }
       session.write('\x03'); // Ctrl+C
       setTimeout(() => session.write('\x03'), 200); // Ctrl+C again
+      break;
+    }
+
+    case 'terminal:subscribe': {
+      const session = registry.get(msg.terminalId);
+      if (!session) {
+        sendMessage(ws, { type: 'error', message: `Terminal not found: ${msg.terminalId}` });
+        return;
+      }
+      // Send current screen content so the client can render what's already there
+      const screen = await session.getScreenContent();
+      if (screen) {
+        sendMessage(ws, {
+          type: 'terminal:output',
+          terminalId: msg.terminalId,
+          data: screen,
+        });
+      }
+      // Subscribe to ongoing output
+      const unsubData = session.onData((data) => {
+        sendMessage(ws, {
+          type: 'terminal:output',
+          terminalId: msg.terminalId,
+          data,
+        });
+      });
+      const unsubExit = session.onExit(() => {
+        sendMessage(ws, {
+          type: 'terminal:exited',
+          terminalId: msg.terminalId,
+          exitCode: 0,
+        });
+      });
+      cleanups.push(unsubData, unsubExit);
       break;
     }
 

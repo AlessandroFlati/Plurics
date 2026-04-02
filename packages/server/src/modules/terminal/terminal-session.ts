@@ -132,6 +132,10 @@ export class TerminalSession {
     return this.tmux.capturePane(this.tmuxSession);
   }
 
+  async getScreenContent(): Promise<string> {
+    return this.tmux.capturePaneWithEscapes(this.tmuxSession);
+  }
+
   async destroy(): Promise<void> {
     this.stopPipeOutput();
     this.stopExitPoller();

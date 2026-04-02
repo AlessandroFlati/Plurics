@@ -50,11 +50,17 @@ export function TerminalPane({ terminal, ws }: TerminalPaneProps) {
     requestAnimationFrame(() => {
       try {
         fitAddon.fit();
+        // Send resize (triggers pipe-pane + command start for new terminals)
         ws?.send({
           type: 'terminal:resize',
           terminalId: terminal.id,
           cols: xterm.cols,
           rows: xterm.rows,
+        });
+        // Subscribe to output (sends current screen content + ongoing output)
+        ws?.send({
+          type: 'terminal:subscribe',
+          terminalId: terminal.id,
         });
       } catch { /* container may not be ready */ }
     });

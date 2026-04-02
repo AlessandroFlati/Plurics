@@ -4,6 +4,7 @@ export type ClientMessage =
   | { type: 'terminal:spawn'; name?: string; command?: string; cwd?: string }
   | { type: 'terminal:attach'; tmuxSessionName: string }
   | { type: 'terminal:kill'; terminalId: string }
+  | { type: 'terminal:subscribe'; terminalId: string }
   | { type: 'terminal:list' };
 
 export type ServerMessage =
