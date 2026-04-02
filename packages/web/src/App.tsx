@@ -25,7 +25,7 @@ export function App() {
     <div style={{ display: 'flex', height: '100vh', background: '#1e1e1e', color: '#fff' }}>
       <TerminalManager
         terminals={terminals}
-        onSpawn={(name) => wsRef.current?.send({ type: 'terminal:spawn', name })}
+        onSpawn={(name, cwd) => wsRef.current?.send({ type: 'terminal:spawn', name, cwd })}
         onKill={(id) => wsRef.current?.send({ type: 'terminal:kill', terminalId: id })}
       />
       <TerminalGrid

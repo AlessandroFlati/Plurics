@@ -1,18 +1,34 @@
 .terminal-manager {
-  width: 220px;
+  min-width: 220px;
+  width: max-content;
   background: #252525;
   border-right: 1px solid #333;
   display: flex;
   flex-direction: column;
   padding: 12px;
   flex-shrink: 0;
-  overflow: hidden;
 }
 
 .terminal-manager-title {
   font-size: 14px;
   font-weight: 600;
   margin: 0 0 12px 0;
+}
+
+.terminal-manager-cwd {
+  margin-bottom: 8px;
+}
+
+.terminal-manager-cwd .terminal-manager-input {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.terminal-manager-label {
+  font-size: 11px;
+  color: var(--secondary, #7d8590);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .terminal-manager-spawn {

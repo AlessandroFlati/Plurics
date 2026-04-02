@@ -4,16 +4,17 @@ import './TerminalManager.css';
 
 interface TerminalManagerProps {
   terminals: TerminalInfo[];
-  onSpawn: (name: string) => void;
+  onSpawn: (name: string, cwd?: string) => void;
   onKill: (id: string) => void;
 }
 
 export function TerminalManager({ terminals, onSpawn, onKill }: TerminalManagerProps) {
   const [newName, setNewName] = useState('');
+  const [cwd, setCwd] = useState('');
 
   function handleSpawn() {
     const name = newName.trim() || `agent-${terminals.length + 1}`;
-    onSpawn(name);
+    onSpawn(name, cwd.trim() || undefined);
     setNewName('');
   }
 
@@ -26,6 +27,16 @@ export function TerminalManager({ terminals, onSpawn, onKill }: TerminalManagerP
   return (
     <div className="terminal-manager">
       <h2 className="terminal-manager-title">Terminals</h2>
+      <div className="terminal-manager-cwd">
+        <label className="terminal-manager-label">Working directory</label>
+        <input
+          type="text"
+          value={cwd}
+          onChange={(e) => setCwd(e.target.value)}
+          placeholder="Default (server cwd)"
+          className="terminal-manager-input"
+        />
+      </div>
       <div className="terminal-manager-spawn">
         <input
           type="text"
