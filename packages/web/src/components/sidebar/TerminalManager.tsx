@@ -7,9 +7,10 @@ interface TerminalManagerProps {
   terminals: TerminalInfo[];
   onSpawn: (name: string, cwd: string) => void;
   onKill: (id: string) => void;
+  onPresetSelect: (label: string, cols: number, rows: number) => void;
 }
 
-export function TerminalManager({ terminals, onSpawn, onKill }: TerminalManagerProps) {
+export function TerminalManager({ terminals, onSpawn, onKill, onPresetSelect: _onPresetSelect }: TerminalManagerProps) {
   const [newName, setNewName] = useState('');
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
 
