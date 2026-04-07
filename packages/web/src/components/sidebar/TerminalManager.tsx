@@ -22,22 +22,28 @@ export function TerminalManager({ terminals, onSpawn, onKill, onPresetSelect: _o
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') {
-      handleSpawn();
-    }
+    if (e.key === 'Enter') handleSpawn();
   }
 
   return (
     <div className="terminal-manager">
-      <h2 className="terminal-manager-title">Terminals</h2>
+      <div className="terminal-manager-app-header">CAAM</div>
 
-      <WorkspaceSelector
-        onSelect={(ws) => { setActiveCwd(ws.path); }}
-        onNewPath={(p) => { setActiveCwd(p); }}
-        locked={!!activeCwd}
-        onUnlock={() => setActiveCwd(null)}
-      />
+      <div className="terminal-manager-section">
+        <div className="terminal-manager-section-label">Workspace</div>
+        <WorkspaceSelector
+          onSelect={(ws) => { setActiveCwd(ws.path); }}
+          onNewPath={(p) => { setActiveCwd(p); }}
+          locked={!!activeCwd}
+          onUnlock={() => setActiveCwd(null)}
+        />
+      </div>
 
+      <div className="terminal-manager-divider" />
+
+      <div className="terminal-manager-section">
+        <div className="terminal-manager-section-label">Terminals</div>
+      </div>
       <div className={'terminal-manager-spawn' + (activeCwd ? '' : ' terminal-manager-spawn--disabled')}>
         <input
           type="text"
@@ -56,16 +62,14 @@ export function TerminalManager({ terminals, onSpawn, onKill, onPresetSelect: _o
       <ul className="terminal-manager-list">
         {terminals.map((t) => (
           <li key={t.id} className="terminal-manager-item">
+            <div className={`terminal-manager-item-dot terminal-manager-item-dot--${t.status}`} />
             <span className="terminal-manager-item-name">{t.name}</span>
-            <span className={`terminal-manager-item-status terminal-manager-item-status--${t.status}`}>
-              {t.status}
-            </span>
             <button
               className="terminal-manager-item-kill"
               onClick={() => onKill(t.id)}
               title="Kill terminal"
             >
-              x
+              ✕
             </button>
           </li>
         ))}
