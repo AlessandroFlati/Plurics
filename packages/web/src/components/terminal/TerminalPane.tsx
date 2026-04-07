@@ -133,18 +133,18 @@ export function TerminalPane({ terminal, ws, onSplitH, onSplitV, onMerge, canMer
   return (
     <div className="terminal-pane">
       <div className="terminal-pane-header">
+        <div className={`terminal-pane-status-dot terminal-pane-status-dot--${terminal.status}`} />
         <span className="terminal-pane-name">{terminal.name}</span>
-        <span className={`terminal-pane-status terminal-pane-status--${terminal.status}`}>
-          {terminal.status}
-        </span>
         {onSplitH && onSplitV && (
-          <PaneToolbar
-            terminalId={terminal.id}
-            onSplitH={onSplitH}
-            onSplitV={onSplitV}
-            onMerge={onMerge ?? (() => {})}
-            canMerge={canMerge ?? false}
-          />
+          <div className="terminal-pane-toolbar-wrapper">
+            <PaneToolbar
+              terminalId={terminal.id}
+              onSplitH={onSplitH}
+              onSplitV={onSplitV}
+              onMerge={onMerge ?? (() => {})}
+              canMerge={canMerge ?? false}
+            />
+          </div>
         )}
       </div>
       <div className="terminal-pane-body" ref={containerRef} />
