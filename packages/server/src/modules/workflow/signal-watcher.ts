@@ -35,6 +35,24 @@ export class SignalWatcher {
     });
   }
 
+  startRecursive(rootDir: string, onSignal: SignalCallback): void {
+    this.stop();
+
+    this.watcher = chokidar.watch(path.join(rootDir, '**', '*.done.json'), {
+      ignoreInitial: false,
+      awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
+      followSymlinks: true,
+    });
+
+    this.watcher.on('add', async (filepath: string) => {
+      await this.handleSignalFile(filepath, onSignal);
+    });
+
+    this.watcher.on('change', async (filepath: string) => {
+      await this.handleSignalFile(filepath, onSignal);
+    });
+  }
+
   stop(): void {
     if (this.watcher) {
       this.watcher.close();

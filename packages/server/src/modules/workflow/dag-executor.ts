@@ -108,9 +108,10 @@ export class DagExecutor {
 
     this.buildNodeGraph();
 
-    // Watch the actual run signals directory (not through symlink — chokidar may not follow junctions on Windows)
-    const runSignalsDir = path.join(this.workspacePath, '.caam', 'runs', this.runId, 'signals');
-    this.signalWatcher.startDir(runSignalsDir, (signal, filename) => {
+    // Watch the entire run directory recursively for signal files
+    // (agents may write to signals/, data/signals/, or other subdirectories)
+    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    this.signalWatcher.startRecursive(runDir, (signal, filename) => {
       this.handleSignal(signal, filename);
     });
 
