@@ -66,7 +66,7 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
           break;
 
         case 'error':
-          if (runId) setError(msg.message);
+          setError(msg.message);
           break;
       }
     });
