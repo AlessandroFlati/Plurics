@@ -10,10 +10,10 @@ import type {
 import { TRANSITIONS } from './types.js';
 import { SignalWatcher } from './signal-watcher.js';
 import { validateSignalOutputs } from './signal-validator.js';
-import { Registrar } from './registrar.js';
 import { generatePurpose } from './purpose-templates.js';
 import { randomHex, writeJsonAtomic } from './utils.js';
 import { resolvePresetContent, resolvePlaceholders } from './preset-resolver.js';
+import type { WorkflowPlugin } from './sdk.js';
 import type { TerminalRegistry } from '../terminal/terminal-registry.js';
 import type { AgentBootstrap } from '../knowledge/agent-bootstrap.js';
 import type { PresetRepository } from '../../db/preset-repository.js';
@@ -37,7 +37,7 @@ export class DagExecutor {
   private readonly registry: TerminalRegistry;
   private readonly bootstrap: AgentBootstrap;
   private readonly presetRepo: PresetRepository;
-  private readonly registrar: Registrar;
+  private plugin: WorkflowPlugin | null = null;
   private readonly workspacePath: string;
   private readonly projectRoot: string;
   private readonly workflowConfig: WorkflowConfig;
@@ -63,7 +63,6 @@ export class DagExecutor {
     this.bootstrap = bootstrap;
     this.presetRepo = presetRepo;
     this.signalWatcher = new SignalWatcher();
-    this.registrar = new Registrar(workspacePath);
     this.runId = `run-${Date.now()}-${randomHex(4)}`;
   }
 
@@ -96,10 +95,24 @@ export class DagExecutor {
         inputManifest,
       );
     }
-    await this.registrar.initialize(
-      this.workflowConfig.config.max_total_tests,
-      this.workflowConfig.config.base_significance ?? 0.05,
-    );
+
+    // Load plugin if specified in workflow YAML
+    if (this.workflowConfig.plugin) {
+      try {
+        const pluginPath = path.resolve(
+          path.dirname(this.workflowConfig._yamlPath ?? ''),
+          this.workflowConfig.plugin,
+        );
+        const pluginModule = await import(pluginPath);
+        this.plugin = pluginModule.default as WorkflowPlugin;
+      } catch (err) {
+        // Plugin load failure is not fatal — proceed without plugin
+      }
+    }
+
+    // Plugin hook: domain-specific initialization
+    await this.plugin?.onWorkflowStart?.(this.workspacePath, this.workflowConfig.config);
+
     this.buildNodeGraph();
 
     this.signalWatcher.start(this.workspacePath, (signal, filename) => {
@@ -128,13 +141,9 @@ export class DagExecutor {
   }
 
   private async initializeSharedDirectory(): Promise<void> {
+    // Create only platform-level directories. Domain-specific dirs are created by the plugin.
     const dirs = [
       '.caam/shared/signals',
-      '.caam/shared/hypotheses',
-      '.caam/shared/test-plans',
-      '.caam/shared/scripts',
-      '.caam/shared/results',
-      '.caam/shared/audit',
     ];
     for (const dir of dirs) {
       await fs.mkdir(path.join(this.workspacePath, dir), { recursive: true });
@@ -170,6 +179,15 @@ export class DagExecutor {
   private evaluateReadyNodes(): void {
     for (const [name, node] of this.nodes) {
       if (node.state !== 'pending') continue;
+
+      // Plugin hook: custom readiness evaluation
+      if (this.plugin?.onEvaluateReadiness) {
+        const nodeStates = new Map<string, { name: string; state: NodeState; scope: string | null }>();
+        for (const [n, nd] of this.nodes) nodeStates.set(n, { name: nd.name, state: nd.state, scope: nd.scope });
+        const pluginResult = this.plugin.onEvaluateReadiness(name, nodeStates);
+        if (pluginResult === true) { this.transition(name, 'deps_met'); continue; }
+        if (pluginResult === false) continue;
+      }
 
       // Check depends_on_all: wait for all scoped instances of named nodes to terminate
       const nodeDef = this.workflowConfig.nodes[node.name] ?? this.workflowConfig.nodes[name];
@@ -251,29 +269,29 @@ export class DagExecutor {
 
     // Load and resolve preset content
     const rawPreset = resolvePresetContent(node.preset, this.projectRoot, this.presetRepo);
-    const presetContent = resolvePlaceholders(rawPreset, {
+    const placeholders: Record<string, string | number> = {
       ROUND: node.invocationCount + 1,
-      HYPOTHESIS_ID: node.scope ?? '',
-      HYPOTHESES_PER_BATCH: this.workflowConfig.config.hypotheses_per_batch ?? 8,
-      MIN_HYPOTHESES_TO_PROCEED: this.workflowConfig.config.min_hypotheses_to_proceed ?? 2,
-      MAX_ROUNDS: this.workflowConfig.config.max_hypothesis_rounds,
-      SCRIPT_TIMEOUT: this.workflowConfig.config.script_timeout_seconds ?? 120,
-    });
-
-    // Get test budget if relevant
-    let testBudgetInfo: { tests_executed: number; tests_remaining: number; significance_threshold_current: number } | undefined;
-    if (['executor', 'architect', 'falsifier'].includes(node.name)) {
-      try {
-        const reg = await this.registrar.readRegistry();
-        testBudgetInfo = {
-          tests_executed: reg.tests_executed,
-          tests_remaining: reg.tests_remaining,
-          significance_threshold_current: reg.significance_threshold_current,
-        };
-      } catch { /* registry not yet initialized */ }
+      SCOPE: node.scope ?? '',
+    };
+    // Pass all config values as placeholders
+    for (const [key, value] of Object.entries(this.workflowConfig.config)) {
+      placeholders[key.toUpperCase()] = value as string | number;
     }
+    const presetContent = resolvePlaceholders(rawPreset, placeholders);
 
-    const purpose = generatePurpose(node, this.workflowConfig, presetContent, testBudgetInfo);
+    // Generate base purpose (generic: preset + shared context + signal protocol)
+    let purpose = generatePurpose(node, this.workflowConfig, presetContent);
+
+    // Plugin hook: domain-specific purpose enrichment
+    if (this.plugin?.onPurposeGenerate) {
+      purpose = await this.plugin.onPurposeGenerate(node.name, purpose, {
+        scope: node.scope,
+        retryCount: node.retryCount,
+        previousError: node.signal?.error ?? null,
+        workspacePath: this.workspacePath,
+        config: this.workflowConfig.config,
+      });
+    }
 
     const agentName = node.scope ? `${node.name}-${node.scope}` : node.name;
 
@@ -328,6 +346,15 @@ export class DagExecutor {
 
     node.signal = signal;
     this.transition(node.name, 'signal_received');
+
+    // Plugin hook: domain-specific signal processing
+    if (this.plugin?.onSignalReceived) {
+      const override = await this.plugin.onSignalReceived(node.name, signal, this.workspacePath);
+      if (override) {
+        if (override.status) signal.status = override.status;
+        if (override.decision) signal.decision = override.decision;
+      }
+    }
 
     const validation = await validateSignalOutputs(this.workspacePath, signal);
     if (!validation.valid) {
@@ -543,7 +570,7 @@ export class DagExecutor {
     }
   }
 
-  private emitWorkflowComplete(): void {
+  private async emitWorkflowComplete(): Promise<void> {
     const nodes = [...this.nodes.values()];
     const summary: WorkflowSummary = {
       total_nodes: nodes.length,
@@ -552,6 +579,17 @@ export class DagExecutor {
       skipped: nodes.filter(n => n.state === 'skipped').length,
       duration_seconds: (Date.now() - this.startedAt) / 1000,
     };
+
+    // Plugin hook: workflow completion
+    await this.plugin?.onWorkflowComplete?.(this.workspacePath, {
+      runId: this.runId,
+      totalNodes: summary.total_nodes,
+      completed: summary.completed,
+      failed: summary.failed,
+      skipped: summary.skipped,
+      durationSeconds: summary.duration_seconds,
+    });
+
     if (this.onComplete) {
       this.onComplete(this.runId, summary);
     }

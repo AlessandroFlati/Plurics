@@ -66,16 +66,9 @@ describe('validateInputManifest', () => {
     expect(errors.some(e => e.message.includes('SELECT'))).toBe(true);
   });
 
-  it('fails for unknown config override key', () => {
+  it('passes for any config override keys (domain-specific)', () => {
     const errors = validateInputManifest(makeManifest({
-      config_overrides: { unknown_key: 42 },
-    }), tmpDir);
-    expect(errors.some(e => e.field.includes('unknown_key'))).toBe(true);
-  });
-
-  it('passes for valid config override', () => {
-    const errors = validateInputManifest(makeManifest({
-      config_overrides: { base_significance: 0.01, max_total_tests: 100 },
+      config_overrides: { custom_key: 42, another: 'value' },
     }), tmpDir);
     expect(errors).toHaveLength(0);
   });

@@ -62,16 +62,11 @@ export interface DagNode {
 export interface WorkflowConfig {
   name: string;
   version: number;
-  config: {
-    max_hypothesis_rounds: number;
-    max_audit_rounds: number;
-    max_total_tests: number;
+  plugin?: string;
+  _yamlPath?: string;
+  config: Record<string, unknown> & {
     agent_timeout_seconds: number;
-    base_significance?: number;
     max_parallel_hypotheses?: number;
-    hypotheses_per_batch?: number;
-    min_hypotheses_to_proceed?: number;
-    script_timeout_seconds?: number;
   };
   shared_context: string;
   nodes: Record<string, WorkflowNodeDef>;

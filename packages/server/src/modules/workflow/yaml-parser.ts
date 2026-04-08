@@ -13,15 +13,9 @@ export function parseWorkflow(yamlContent: string): WorkflowConfig {
   assertField(raw, 'config', 'object');
   assertField(raw, 'nodes', 'object');
 
-  const requiredConfigFields = [
-    'max_hypothesis_rounds',
-    'max_audit_rounds',
-    'max_total_tests',
-    'agent_timeout_seconds',
-  ];
-  for (const field of requiredConfigFields) {
-    assertField(raw.config, field, 'number');
-  }
+  // Only agent_timeout_seconds is required by the platform.
+  // All other config keys are domain-specific and passed through to the plugin.
+  assertField(raw.config, 'agent_timeout_seconds', 'number');
 
   if (!raw.shared_context) {
     raw.shared_context = '';

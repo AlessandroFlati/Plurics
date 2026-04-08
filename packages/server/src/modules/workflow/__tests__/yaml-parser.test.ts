@@ -36,9 +36,9 @@ describe('parseWorkflow', () => {
     expect(() => parseWorkflow(yaml)).toThrow('Missing required field: "name"');
   });
 
-  it('rejects missing config fields', () => {
-    const yaml = VALID_YAML.replace('max_total_tests: 50', '');
-    expect(() => parseWorkflow(yaml)).toThrow('Missing required field: "max_total_tests"');
+  it('rejects missing agent_timeout_seconds', () => {
+    const yaml = VALID_YAML.replace('agent_timeout_seconds: 300', '');
+    expect(() => parseWorkflow(yaml)).toThrow('Missing required field: "agent_timeout_seconds"');
   });
 
   it('rejects unknown dependency', () => {

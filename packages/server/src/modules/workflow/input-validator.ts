@@ -7,11 +7,7 @@ export interface ManifestValidationError {
   message: string;
 }
 
-const KNOWN_CONFIG_KEYS = [
-  'max_hypothesis_rounds', 'max_audit_rounds', 'max_total_tests',
-  'agent_timeout_seconds', 'base_significance', 'max_parallel_hypotheses',
-  'hypotheses_per_batch', 'min_hypotheses_to_proceed', 'script_timeout_seconds',
-];
+// Config keys are domain-specific — no validation against a fixed list.
 
 export function validateInputManifest(
   manifest: InputManifest,
@@ -76,11 +72,7 @@ export function validateInputManifest(
     }
   }
 
-  for (const key of Object.keys(manifest.config_overrides || {})) {
-    if (!KNOWN_CONFIG_KEYS.includes(key)) {
-      errors.push({ field: `config_overrides.${key}`, message: `Unknown config key: ${key}` });
-    }
-  }
+  // Config overrides are domain-specific — no key validation needed.
 
   if (manifest.scope) {
     if (manifest.scope.include_columns && manifest.scope.exclude_columns) {
