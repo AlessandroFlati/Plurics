@@ -299,13 +299,17 @@ export class DagExecutor {
     if (this.paused) return;
     const maxParallel = this.workflowConfig.config.max_parallel_hypotheses ?? Infinity;
     const readyNodes = [...this.nodes.entries()].filter(([, n]) => n.state === 'ready');
+    // Count active scopes (distinct sub-DAGs), not individual scoped nodes
+    const activeScopes = new Set(
+      [...this.nodes.values()]
+        .filter(n => n.scope !== null && ['spawning', 'running', 'validating'].includes(n.state))
+        .map(n => n.scope)
+    );
+
     for (const [name, node] of readyNodes) {
-      // Enforce concurrency limit for scoped (fan-out) nodes
-      if (node.scope !== null && this.activeSubDags >= maxParallel) {
+      // Enforce concurrency limit: only block NEW scopes, not nodes within active scopes
+      if (node.scope !== null && !activeScopes.has(node.scope) && activeScopes.size >= maxParallel) {
         continue;
-      }
-      if (node.scope !== null) {
-        this.activeSubDags++;
       }
       await this.spawnAgent(name);
     }
