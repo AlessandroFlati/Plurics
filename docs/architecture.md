@@ -399,6 +399,7 @@ packages/server/src/modules/workflow/
   manifest-types.ts         # Profiler data manifest types
   test-plan-types.ts        # Architect test plan types
   hypothesis-validator.ts   # DSL validation rules
+  synthesis-types.ts        # Meta-Analyst, Falsifier, Generalizer types
 ```
 
 ---
@@ -433,3 +434,44 @@ Comprehensive dataset profile: metadata (shape, time series detection, natural e
 | Hypothesis | Hypothesist | `.caam/shared/hypotheses/H-{NNN}.json` |
 | TestPlan | Architect | `.caam/shared/test-plans/H-{NNN}-plan.json` |
 | TestResult | Executor | `.caam/shared/results/H-{NNN}-result.json` |
+| FinalReport | Meta-Analyst | `.caam/shared/final-report.json` + `.md` |
+
+---
+
+## Synthesis Agents
+
+### Meta-Analyst
+
+Final agent that sees all outputs and produces a synthesis report. Five analysis tasks:
+1. **Finding clusters** -- groups hypotheses by shared variables, synthesizes mechanism narratives
+2. **Causal graph synthesis** -- merges validated causal edges into a DAG, detects contradictions
+3. **Consistency checks** -- Simpson's paradox, ecological fallacy, collider bias detection
+4. **Gap analysis** -- unexplored variables, unused leads, recoverable hypotheses
+5. **Importance ranking** -- composite score (statistical 0.15, practical 0.25, robustness 0.25, generalizability 0.15, novelty 0.20)
+
+### Falsifier
+
+Tries to break validated hypotheses. 8 strategies with applicability matrix per hypothesis type:
+- **Required** (permutation, bootstrap): failure = falsified
+- **Informational** (subgroup reversal, leave-one-out, temporal split, random confounder, collider check, effect threshold probe): contribute to robustness_score
+
+`robustness_score = n_survived / n_attempted`
+
+### Generalizer
+
+Relaxes conditions on validated hypotheses (Occam's razor). 6 strategies: remove subgroup filter, remove confounder, weaken condition, broaden variable, cross time period, merge related hypotheses. Runs tests directly (shortcut, not full pipeline).
+
+### Context Window Management
+
+`manifestSlice()` in purpose-templates.ts provides per-agent manifest filtering:
+- Full manifest: hypothesist, adversary, generalizer, meta_analyst
+- Filtered columns: architect, coder, auditor, fixer, falsifier
+- Summary only: judge
+- None: executor
+
+### DAG Executor Enhancements
+
+- **Concurrency limit**: `max_parallel_hypotheses` enforced via semaphore on scoped nodes
+- **Graceful degradation**: Meta-analyst runs when all scoped nodes terminate or when judge exhausts rounds with zero approvals
+- **Namespace guard**: `validateOutputNamespace()` ensures agents only write to their scope's paths
+- **Hypothesis IDs**: counter in `.caam/shared/hypothesis-counter.json`

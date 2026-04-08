@@ -44,6 +44,7 @@ export class DagExecutor {
   private startedAt: number = 0;
   private onStateChange: StateChangeCallback | null = null;
   private onComplete: WorkflowCompleteCallback | null = null;
+  private activeSubDags: number = 0;
 
   constructor(
     workflowConfig: WorkflowConfig,
@@ -158,6 +159,15 @@ export class DagExecutor {
     for (const [name, node] of this.nodes) {
       if (node.state !== 'pending') continue;
 
+      // Check depends_on_all: wait for all scoped instances of named nodes to terminate
+      const nodeDef = this.workflowConfig.nodes[node.name] ?? this.workflowConfig.nodes[name];
+      if (nodeDef?.depends_on_all) {
+        if (this.evaluateDependsOnAll(name, nodeDef.depends_on_all)) {
+          this.transition(name, 'deps_met');
+        }
+        continue;
+      }
+
       const depsFailed = node.dependsOn.some(depName => {
         const dep = this.nodes.get(depName);
         return dep && (dep.state === 'failed' || dep.state === 'skipped');
@@ -179,9 +189,46 @@ export class DagExecutor {
     }
   }
 
+  private evaluateDependsOnAll(nodeName: string, depNames: string[]): boolean {
+    // All scoped instances of the named nodes must be in a terminal state
+    for (const depBase of depNames) {
+      const scopedNodes = [...this.nodes.values()].filter(
+        n => n.name === depBase || n.name.startsWith(depBase + '.'),
+      );
+      // If no scoped nodes exist yet, check if all upstream is terminal (graceful degradation)
+      if (scopedNodes.length === 0) {
+        const allScopedTerminal = [...this.nodes.values()]
+          .filter(n => n.scope !== null)
+          .every(n => ['completed', 'failed', 'skipped'].includes(n.state));
+        const noScopedNodes = ![...this.nodes.values()].some(n => n.scope !== null);
+        // Graceful degradation: if no scoped nodes were ever created, allow meta_analyst to run
+        if (noScopedNodes) {
+          const allNonPendingTerminal = [...this.nodes.values()]
+            .filter(n => n.name !== nodeName && !['pending'].includes(n.state))
+            .every(n => ['completed', 'failed', 'skipped'].includes(n.state));
+          return allNonPendingTerminal;
+        }
+        return allScopedTerminal;
+      }
+      const allTerminal = scopedNodes.every(
+        n => ['completed', 'failed', 'skipped'].includes(n.state),
+      );
+      if (!allTerminal) return false;
+    }
+    return true;
+  }
+
   private async scheduleReadyNodes(): Promise<void> {
+    const maxParallel = this.workflowConfig.config.max_parallel_hypotheses ?? Infinity;
     const readyNodes = [...this.nodes.entries()].filter(([, n]) => n.state === 'ready');
-    for (const [name] of readyNodes) {
+    for (const [name, node] of readyNodes) {
+      // Enforce concurrency limit for scoped (fan-out) nodes
+      if (node.scope !== null && this.activeSubDags >= maxParallel) {
+        continue;
+      }
+      if (node.scope !== null) {
+        this.activeSubDags++;
+      }
       await this.spawnAgent(name);
     }
   }
@@ -288,6 +335,16 @@ export class DagExecutor {
   private async postCompletion(node: DagNode): Promise<void> {
     if (node.signal?.status === 'branch' && node.signal.decision) {
       await this.handleBranchDecision(node);
+    }
+
+    // Decrement sub-DAG counter when scoped terminal nodes complete
+    if (node.scope !== null) {
+      // Check if this is the last node in the sub-DAG for this scope
+      const scopeNodes = [...this.nodes.values()].filter(n => n.scope === node.scope);
+      const allTerminal = scopeNodes.every(n => ['completed', 'failed', 'skipped'].includes(n.state));
+      if (allTerminal) {
+        this.activeSubDags = Math.max(0, this.activeSubDags - 1);
+      }
     }
 
     this.postUpdate();

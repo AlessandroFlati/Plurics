@@ -83,3 +83,34 @@ export async function validateSignalOutputs(
 
   return { valid: errors.length === 0, errors };
 }
+
+export function validateOutputNamespace(
+  scope: string | null,
+  signal: SignalFile,
+  allowedPatterns: string[],
+): { valid: boolean; violations: string[] } {
+  const violations: string[] = [];
+
+  for (const output of signal.outputs) {
+    // Check scope containment
+    if (scope && !output.path.includes(scope)) {
+      violations.push(`Output "${output.path}" does not contain scope "${scope}"`);
+    }
+
+    // Check against allowed patterns (if declared)
+    if (allowedPatterns.length > 0) {
+      const matches = allowedPatterns.some(pattern => {
+        const regex = pattern
+          .replace(/\{hypothesis_id\}/g, scope || '[^/]+')
+          .replace(/\*/g, '[^/]*')
+          .replace(/\*\*/g, '.*');
+        return new RegExp(regex).test(output.path);
+      });
+      if (!matches) {
+        violations.push(`Output "${output.path}" does not match any allowed pattern: ${allowedPatterns.join(', ')}`);
+      }
+    }
+  }
+
+  return { valid: violations.length === 0, violations };
+}
