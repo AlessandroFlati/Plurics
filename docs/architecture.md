@@ -475,3 +475,42 @@ Relaxes conditions on validated hypotheses (Occam's razor). 6 strategies: remove
 - **Graceful degradation**: Meta-analyst runs when all scoped nodes terminate or when judge exhausts rounds with zero approvals
 - **Namespace guard**: `validateOutputNamespace()` ensures agents only write to their scope's paths
 - **Hypothesis IDs**: counter in `.caam/shared/hypothesis-counter.json`
+
+---
+
+## Workflow Templates
+
+### Production Workflow
+
+`workflows/research-swarm.yaml` defines the complete 13-agent research swarm pipeline:
+
+```
+Phase 0: Ingestor -> Profiler
+Phase 1: Hypothesist -> Adversary -> Judge (loops up to 3 rounds)
+Phase 2: Architect -> Coder -> Auditor <-> Fixer (loop) -> Executor -> Falsifier
+Phase 3: Generalizer -> Meta-Analyst (waits for all hypothesis pipelines)
+```
+
+Config: 50 test budget, 3 parallel hypothesis sub-DAGs, 8 hypotheses per batch, BH FDR at alpha=0.05.
+
+### Agent Presets
+
+13 preset templates in `workflows/presets/research/`:
+
+| Preset | Key Responsibilities |
+|---|---|
+| `ingestor.md` | Format detection, normalization, parquet + CSV sample output |
+| `profiler.md` | Column profiles, semantic types, correlations, quality report, analysis leads |
+| `hypothesist.md` | Generate N structured hypotheses from manifest leads, diversify types |
+| `adversary.md` | 8 attack checks (tautology through causal plausibility), pass/flag/reject |
+| `judge.md` | Triage, apply fixes, route (architect fan-out vs hypothesist loop vs meta-analyst) |
+| `architect.md` | Test mode selection, specific test choice, preprocessing, power analysis |
+| `coder.md` | Self-contained Python script, atomic result write, error handling |
+| `auditor.md` | Bug/logic/missing-check audit, route to fixer or executor |
+| `fixer.md` | Surgical bug fixes from audit, verify ast.parse, atomic overwrite |
+| `executor.md` | Budget check, subprocess with timeout, failure result on crash |
+| `falsifier.md` | 6 strategies (permutation, bootstrap, subgroup, LOO, temporal, random confounder) |
+| `generalizer.md` | 4 strategies (remove subgroup, remove covariate, weaken threshold, correlated variable) |
+| `meta-analyst.md` | Clustering, causal graph, consistency, gaps, importance ranking, narrative report |
+
+Templates use `{{PLACEHOLDER}}` syntax resolved at spawn time by `purpose-templates.ts`.

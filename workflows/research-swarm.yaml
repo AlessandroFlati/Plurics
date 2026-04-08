@@ -1,0 +1,157 @@
+name: research-swarm
+description: >
+  Multi-agent research pipeline. Ingests a dataset, profiles it, generates
+  and stress-tests statistical hypotheses, writes and audits test scripts,
+  executes them, falsifies survivors, generalises findings, and produces a
+  final synthesis report.
+
+config:
+  max_hypothesis_rounds: 3
+  max_audit_rounds: 5
+  max_total_tests: 50
+  agent_timeout_seconds: 300
+  base_significance: 0.05
+  max_parallel_hypotheses: 3
+  hypotheses_per_batch: 8
+  min_hypotheses_to_proceed: 2
+  script_timeout_seconds: 120
+
+# ---------------------------------------------------------------------------
+# Shared context – all agents read from / write to this workspace layout
+# ---------------------------------------------------------------------------
+shared_context:
+  workspace_root: .caam/shared/data/
+  files:
+    profiling_report:    .caam/shared/data/profiling-report.json
+    test_registry:       .caam/shared/data/test-registry.json
+    hypothesis_counter:  .caam/shared/data/hypothesis-counter.json
+  directories:
+    hypotheses:   .caam/shared/data/hypotheses/
+    test_plans:   .caam/shared/data/test-plans/
+    scripts:      .caam/shared/data/scripts/
+    results:      .caam/shared/data/results/
+    audit:        .caam/shared/data/audit/
+    signals:      .caam/shared/data/signals/
+
+# ---------------------------------------------------------------------------
+# Nodes
+# ---------------------------------------------------------------------------
+nodes:
+
+  ingestor:
+    preset: workflows/presets/research/ingestor.md
+    depends_on: []
+    description: Load raw data, normalise schema, write parquet + sample.
+
+  profiler:
+    preset: workflows/presets/research/profiler.md
+    depends_on: [ingestor]
+    description: Exploratory data analysis; emit profiling-report.json.
+
+  hypothesist:
+    preset: workflows/presets/research/hypothesist.md
+    depends_on: [profiler]
+    max_invocations: ${config.max_hypothesis_rounds}
+    description: Generate a batch of structured, testable hypotheses.
+    template_vars:
+      HYPOTHESES_PER_BATCH: ${config.hypotheses_per_batch}
+      ROUND: "{{ROUND}}"
+      MAX_ROUNDS: ${config.max_hypothesis_rounds}
+
+  adversary:
+    preset: workflows/presets/research/adversary.md
+    depends_on: [hypothesist]
+    description: Attack each hypothesis for logical and statistical flaws.
+    template_vars:
+      ROUND: "{{ROUND}}"
+
+  judge:
+    preset: workflows/presets/research/judge.md
+    depends_on: [adversary]
+    description: >
+      Triage adversary verdicts; approve, fix-then-approve, or reject each
+      hypothesis. Fan-out approved ones to architect; loop back to hypothesist
+      if quota not met and rounds remain.
+    template_vars:
+      ROUND: "{{ROUND}}"
+      MAX_ROUNDS: ${config.max_hypothesis_rounds}
+      MIN_HYPOTHESES_TO_PROCEED: ${config.min_hypotheses_to_proceed}
+    branches:
+      - condition: approved_hypotheses.length >= config.min_hypotheses_to_proceed
+        next: architect
+        foreach: approved_hypotheses
+      - condition: current_round < config.max_hypothesis_rounds
+        next: hypothesist
+      - condition: default
+        next: meta_analyst
+
+  architect:
+    preset: workflows/presets/research/architect.md
+    depends_on: [judge]
+    description: Design a statistical test plan for a single hypothesis.
+    template_vars:
+      HYPOTHESIS_ID: "{{HYPOTHESIS_ID}}"
+
+  coder:
+    preset: workflows/presets/research/coder.md
+    depends_on: [architect]
+    description: Write a self-contained Python test script from the test plan.
+    template_vars:
+      HYPOTHESIS_ID: "{{HYPOTHESIS_ID}}"
+
+  auditor:
+    preset: workflows/presets/research/auditor.md
+    depends_on: [coder]
+    max_invocations: ${config.max_audit_rounds}
+    description: Review the script for bugs and logical errors.
+    template_vars:
+      HYPOTHESIS_ID: "{{HYPOTHESIS_ID}}"
+    branches:
+      - condition: audit.has_bugs == false
+        next: executor
+      - condition: audit.has_bugs == true
+        next: fixer
+
+  fixer:
+    preset: workflows/presets/research/fixer.md
+    depends_on: [auditor]
+    next: auditor
+    description: Repair every issue found by the auditor; loop back for re-review.
+    template_vars:
+      HYPOTHESIS_ID: "{{HYPOTHESIS_ID}}"
+
+  executor:
+    preset: workflows/presets/research/executor.md
+    depends_on: [auditor]
+    description: Run the test script within budget and timeout constraints.
+    template_vars:
+      HYPOTHESIS_ID: "{{HYPOTHESIS_ID}}"
+      SCRIPT_TIMEOUT: ${config.script_timeout_seconds}
+
+  falsifier:
+    preset: workflows/presets/research/falsifier.md
+    depends_on: [executor]
+    description: >
+      Apply adversarial robustness checks to hypotheses that passed acceptance.
+      Route failures back to hypothesist; survivors proceed to generalizer.
+    template_vars:
+      HYPOTHESIS_ID: "{{HYPOTHESIS_ID}}"
+    branches:
+      - condition: falsification.survived == true
+        next: generalizer
+      - condition: falsification.survived == false
+        next: hypothesist
+
+  generalizer:
+    preset: workflows/presets/research/generalizer.md
+    depends_on: [falsifier]
+    description: Broaden the scope of validated findings.
+    template_vars:
+      HYPOTHESIS_ID: "{{HYPOTHESIS_ID}}"
+
+  meta_analyst:
+    preset: workflows/presets/research/meta-analyst.md
+    depends_on_all: [generalizer]
+    description: >
+      Synthesise all findings into a final report with causal graph, gap
+      analysis, and ranked importance scores.
