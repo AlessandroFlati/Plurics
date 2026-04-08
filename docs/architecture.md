@@ -1,15 +1,43 @@
-# Claude Agent Auto Manager - Architecture Document
+# Claude Agent Auto Manager (CAAM) - Architecture Document
 
-Last updated: 2026-04-08 07:38 UTC
+Last updated: 2026-04-08 11:02 UTC
 
 ## Overview
 
-CAAM is a web-based platform for managing multiple Claude Code terminal sessions as a coordinated agent network. It provides a browser-based IDE-like interface where each pane hosts an autonomous Claude Code agent, and agents communicate with each other through filesystem-based messaging.
+CAAM is a web-based platform for managing multiple Claude Code terminal sessions as a coordinated agent network. It provides a browser-based IDE-like interface where each pane hosts an autonomous Claude Code agent. Agents communicate through filesystem-based messaging and can be orchestrated by a DAG workflow engine.
 
-The system is split into two packages in a monorepo:
+The platform is general-purpose: any multi-agent pipeline can be defined as a YAML workflow with reusable agent presets. A research data analysis swarm is included as an example use case.
 
-- **`packages/server`** -- Node.js + TypeScript backend: terminal process management, WebSocket transport, SQLite persistence, filesystem-based agent communication
-- **`packages/web`** -- React + TypeScript frontend: terminal rendering (xterm.js), resizable split panes, workspace management, agent spawn modal
+## Architecture
+
+```
++--------------------------------------------------+
+|  Browser (localhost:11000)                        |
+|                                                   |
+|  +----------+  +------------------------------+  |
+|  | Sidebar  |  | Terminal Grid (split panes)   |  |
+|  | Workspace|  |  +--------+  +--------+      |  |
+|  | Terminals|  |  | Agent1 |  | Agent2 |      |  |
+|  | Workflow  |  |  +--------+  +--------+      |  |
+|  | Controls |  +------------------------------+  |
+|  +----------+  | DAG Visualization (pan/zoom)  |  |
+|                +------------------------------+  |
++--------------------------------------------------+
+        |  WebSocket + REST API (Vite proxy)
+        v
++--------------------------------------------------+
+|  Server (localhost:11001)                         |
+|                                                   |
+|  Express HTTP + WebSocket                         |
+|  +-- TerminalRegistry (node-pty sessions)         |
+|  +-- AgentBootstrap (.caam/ dirs, purpose.md)     |
+|  +-- KnowledgeWatcher (chokidar inbox injection)  |
+|  +-- DagExecutor (workflow state machine)          |
+|  +-- PresetResolver (filesystem + DB)              |
+|  +-- Registrar (BH FDR correction)                 |
+|  +-- SQLite (workspaces, presets, workflow runs)    |
++--------------------------------------------------+
+```
 
 ## Technology Stack
 
@@ -17,322 +45,280 @@ The system is split into two packages in a monorepo:
 |---|---|
 | Runtime | Node.js (ES2022) |
 | Language | TypeScript (strict mode) |
-| Backend framework | Express.js |
-| Real-time transport | WebSocket (ws library) |
-| Terminal emulation | node-pty (server), xterm.js + WebGL addon (client) |
+| Backend | Express.js, ws (WebSocket) |
+| Terminal | node-pty (server), xterm.js + WebGL (client) |
 | Database | SQLite via better-sqlite3 (`~/.caam/caam.db`) |
 | File watching | chokidar |
-| Frontend framework | React 18 |
-| Build tool | Vite |
+| Frontend | React 18, Vite |
 | Layout | Allotment (resizable split panes) |
-| Package manager | npm workspaces |
-| Test runner | Vitest |
+| Workflow | YAML-defined DAG, filesystem-based signals |
+| Testing | Vitest (63 tests) |
 
 ## Project Structure
 
 ```
 claude-agent-auto-manager/
-  package.json                          # Monorepo root, npm workspaces
+  package.json                          # Monorepo root (npm workspaces)
+  workflows/
+    research-swarm.yaml                 # Example: research analysis pipeline
+    presets/
+      research/                         # 13 agent purpose templates
+        ingestor.md ... meta-analyst.md
   packages/
-    server/
-      src/
-        app.ts                          # Entry point: Express + HTTP server + wiring
-        db/
-          database.ts                   # SQLite singleton, migrations
-          workspace-repository.ts       # Workspace CRUD
-          preset-repository.ts          # Agent preset CRUD
-        modules/
-          terminal/
-            types.ts                    # TerminalInfo, TerminalConfig, constants
-            terminal-session.ts         # PTY process wrapper
-            terminal-registry.ts        # In-memory session registry
-            tmux-manager.ts             # Legacy tmux wrapper (unused on Windows)
-          knowledge/
-            agent-bootstrap.ts          # .caam/ directory management
-            knowledge-watcher.ts        # chokidar inbox watcher
-        transport/
-          protocol.ts                   # WebSocket message types
-          websocket.ts                  # WebSocket server + message handler
-    web/
-      src/
-        main.tsx                        # React entry point
-        App.tsx                         # Root component: layout, state, WebSocket
-        types.ts                        # Shared TypeScript types
-        theme.css                       # Design tokens (CSS custom properties)
-        services/
-          websocket-client.ts           # WebSocket wrapper with auto-reconnect
-        stores/
-          terminal-store.ts             # React external store for terminal state
-        components/
-          sidebar/
-            TerminalManager.tsx          # Sidebar: workspace, spawn, terminal list
-            TerminalManager.css
-            WorkspaceSelector.tsx        # Directory autocomplete + workspace persistence
-            WorkspaceSelector.css
-            SpawnModal.tsx               # Agent spawn modal with purpose editor
-            SpawnModal.css
-          grid/
-            SplitLayout.tsx             # Recursive split-pane renderer
-            SplitLayout.css
-            PaneToolbar.tsx             # Split/close buttons with SVG icons
-            PaneToolbar.css
-            EmptySlot.tsx               # Empty pane placeholder
-            EmptySlot.css
-            split-tree.ts              # Binary tree layout data structure
-          terminal/
-            TerminalPane.tsx            # xterm.js terminal wrapper
-            TerminalPane.css
+    server/src/
+      app.ts                            # Entry point, routes, wiring
+      db/
+        database.ts                     # SQLite init + migrations
+        workspace-repository.ts         # Workspace CRUD
+        preset-repository.ts            # Agent preset CRUD
+        workflow-repository.ts          # Workflow run + event persistence
+      modules/
+        terminal/
+          types.ts                      # TerminalInfo, TerminalConfig
+          terminal-session.ts           # PTY process wrapper (node-pty)
+          terminal-registry.ts          # Session registry + callbacks
+        knowledge/
+          agent-bootstrap.ts            # .caam/ directory management
+          knowledge-watcher.ts          # Inbox notification injection
+        workflow/
+          types.ts                      # Signal, DagNode, WorkflowConfig
+          utils.ts                      # Atomic write, SHA-256, sleep
+          signal-validator.ts           # Signal schema + output integrity
+          signal-watcher.ts             # chokidar on *.done.json
+          yaml-parser.ts                # Parse + validate + cycle detection
+          dag-executor.ts               # DAG state machine engine
+          registrar.ts                  # Benjamini-Hochberg FDR correction
+          purpose-templates.ts          # Purpose generation + manifest slicing
+          preset-resolver.ts            # Filesystem + DB preset resolution
+          hypothesis-types.ts           # Hypothesis DSL (research example)
+          manifest-types.ts             # Data manifest types (research example)
+          test-plan-types.ts            # Test plan types (research example)
+          hypothesis-validator.ts       # DSL validation rules
+          synthesis-types.ts            # Meta-analyst, falsifier, generalizer types
+      transport/
+        protocol.ts                     # WebSocket message types
+        websocket.ts                    # Message handler + workflow lifecycle
+    web/src/
+      App.tsx                           # Root: layout, state, WebSocket, workflow
+      types.ts                          # Shared protocol types
+      theme.css                         # Design tokens (dark theme)
+      services/
+        websocket-client.ts             # Auto-reconnect WebSocket
+      stores/
+        terminal-store.ts               # React external store (useSyncExternalStore)
+      components/
+        sidebar/
+          TerminalManager.tsx           # Workspace, spawn, terminal list, workflow
+          WorkspaceSelector.tsx          # Directory autocomplete
+          SpawnModal.tsx                 # Purpose editor + preset quicklist
+        grid/
+          SplitLayout.tsx               # Recursive split-pane renderer
+          PaneToolbar.tsx               # Split/close buttons (SVG icons)
+          EmptySlot.tsx                 # Empty pane placeholder
+          split-tree.ts                # Binary tree layout functions
+        terminal/
+          TerminalPane.tsx              # xterm.js wrapper + resize
+        workflow/
+          WorkflowPanel.tsx             # Sidebar controls (file picker, start/abort)
+          DagVisualization.tsx           # SVG DAG with pan/zoom
 ```
 
 ---
 
-## Server Architecture
+## Terminal Management
 
-### Entry Point (`app.ts`)
+### PTY Sessions
 
-The server initializes all modules and wires them together:
+Each terminal wraps a `node-pty` pseudo-terminal process. On Windows it spawns `powershell.exe`; on Linux/macOS it spawns `bash`. The actual command (e.g., `claude --dangerously-skip-permissions`) is deferred until the client reports terminal dimensions (first `resize` event), preventing TUI apps from rendering at wrong dimensions.
 
-```
-TerminalRegistry
-AgentBootstrap
-KnowledgeWatcher(registry)
-PresetRepository(db)
-WorkspaceRepository(db)
-createWebSocketServer(server, registry, bootstrap, presetRepo)
-```
+### Terminal Registry
 
-It exposes REST endpoints for:
-- `GET /api/health` -- health check
-- `GET /api/terminals` -- list active terminals
-- `POST /api/validate-path` -- check if a directory exists
-- `GET /api/list-dirs?prefix=` -- directory autocomplete (supports both `/` and `\`)
-- `GET|POST|PUT|DELETE /api/workspaces` -- workspace CRUD
-- `GET|POST|PUT|DELETE /api/agent-presets` -- preset CRUD
+In-memory `Map<id, TerminalSession>` with:
+- `getByName(name)` for inbox notification injection
+- `listWithPurpose()` for agents.md regeneration
+- `onSpawn(callback)` / `onTerminalExit(callback)` for workflow hooks
+- `onTerminalExitById(id, callback)` for DAG executor crash detection
 
-Lifecycle hooks:
-- `registry.onTerminalExit()` triggers `bootstrap.regenerateAgentsList()` to update `.caam/shared/agents.md`
-- `registry.onSpawn()` starts the `KnowledgeWatcher` on the workspace directory
+### WebSocket Protocol
 
-### Terminal Module
+Single multiplexed connection per browser client on `/ws`. Terminal messages: `spawn`, `input`, `resize`, `kill`, `subscribe`, `list`. Workflow messages: `start`, `abort`, `status`, `started`, `node-update`, `completed`.
 
-**TerminalSession** wraps a `node-pty` pseudo-terminal process. On Windows it spawns `powershell.exe`; on Linux/macOS it spawns `bash`. The actual command (e.g. `claude --dangerously-skip-permissions`) is deferred -- it is injected via `write()` only after the client reports its terminal dimensions (first `resize` event). This prevents TUI apps from rendering at wrong dimensions.
+---
 
-Key lifecycle:
-1. `TerminalSession.create(config)` spawns PTY with shell
-2. Client sends `terminal:subscribe` -- server attaches data/exit listeners
-3. Client sends `terminal:resize` -- triggers deferred command on first call
-4. PTY output streams to client via WebSocket
-5. `destroy()` kills PTY and notifies exit listeners
+## Agent Communication
 
-**TerminalRegistry** is the in-memory registry. It maps session IDs to TerminalSession instances, tracks agent purposes in a separate map, and provides `getByName()` for the KnowledgeWatcher to find sessions by agent name.
+### Filesystem-Based Messaging
 
-### Knowledge Module
-
-**AgentBootstrap** manages the `.caam/` directory inside the workspace:
+Each workspace has a `.caam/` directory:
 
 ```
-<workspace>/
-  .caam/
-    shared/
-      agents.md            # Auto-generated: list of running agents
-      context.md           # Free-form shared context
-    agents/
-      <agent-name>/
-        purpose.md         # Agent role + communication instructions
-        inbox.md           # Messages from other agents (append-only)
+<workspace>/.caam/
+  shared/
+    agents.md               # Auto-generated active agent registry
+    context.md              # Free-form shared context
+    signals/                # Workflow completion signals (*.done.json)
+  agents/
+    <name>/
+      purpose.md            # Agent instructions + communication protocol
+      inbox.md              # Messages from other agents (append-only)
 ```
 
-When an agent is spawned with a purpose:
-1. Creates `agents/<name>/purpose.md` with user content + communication template
-2. Creates empty `agents/<name>/inbox.md`
+### Agent Bootstrap
+
+When an agent spawns (manually or via workflow):
+1. Creates `.caam/agents/<name>/purpose.md` with user content + communication template
+2. Creates empty `inbox.md`
 3. Regenerates `shared/agents.md` with all active agents
-4. After 2s delay, injects into the terminal: `Read your purpose and instructions at .caam/agents/<name>/purpose.md and follow them.`
+4. Injects purpose prompt into terminal after 2s delay
 
-When an agent exits, `agents.md` is regenerated without it.
+### Inbox Notifications
 
-**KnowledgeWatcher** uses chokidar to watch `<workspace>/.caam/agents/*/inbox.md`. When a file changes (another agent wrote a message):
-1. Debounces for 300ms per agent name
-2. Looks up the target terminal by agent name via `registry.getByName()`
-3. Injects `[CAAM] New message in your inbox. Read .caam/agents/<name>/inbox.md` into the terminal
+`KnowledgeWatcher` uses chokidar to watch `agents/*/inbox.md`. When a file changes, it debounces (300ms) and injects `[CAAM] New message in your inbox` into the target terminal.
 
-### Database
+### Agent Presets
 
-SQLite at `~/.caam/caam.db` with WAL journal mode and foreign keys.
+Presets are reusable purpose templates stored in SQLite (`agent_presets` table) for cross-project reuse. On startup, the server auto-seeds presets from `workflows/presets/` on the filesystem. The `SpawnModal` UI shows presets sorted by usage frequency.
 
-**Tables:**
+---
+
+## Workflow Orchestration
+
+### Overview
+
+Workflows are YAML-defined DAGs of agent nodes. The `DagExecutor` manages the pipeline lifecycle: spawning agents, watching for completion signals, handling timeouts/retries, branching decisions, and fan-out.
+
+### Signal Protocol
+
+Agents report completion by writing JSON signal files to `.caam/shared/signals/`. The signal is the sole mechanism by which the executor learns an agent has finished. Signals use atomic write (`.tmp` + rename) and include SHA-256 checksums for output integrity.
+
+Signal statuses: `success`, `failure`, `branch` (with goto decision), `budget_exhausted`.
+
+### DAG State Machine
+
+```
+pending -> ready -> spawning -> running -> validating -> completed
+                                  |            |
+                                  v            v
+                               retrying     retrying -> failed
+```
+
+Features:
+- **Timeout**: configurable per-node, kills terminal and retries
+- **Retry**: up to `max_retries` with error context injected into purpose
+- **Branch**: signal's `decision.goto` routes to target node
+- **Fan-out**: `foreach` in branch creates scoped sub-DAGs (one per item)
+- **Concurrency limit**: `max_parallel_hypotheses` semaphore on scoped nodes
+- **Graceful degradation**: meta-analyst runs even when no hypotheses survive
+- **Namespace guard**: validates agent outputs match their scope
+
+### Workflow YAML
+
+```yaml
+name: my-pipeline
+version: 1
+config:
+  agent_timeout_seconds: 300
+  max_parallel_hypotheses: 3
+shared_context: |
+  Description of the task for all agents.
+nodes:
+  step_a:
+    preset: my-presets/step-a
+    depends_on: []
+  step_b:
+    preset: my-presets/step-b
+    depends_on: [step_a]
+    branch:
+      - condition: "ready"
+        goto: step_c
+        foreach: items
+  step_c:
+    preset: my-presets/step-c
+    depends_on: [step_b]
+```
+
+### Preset Resolution
+
+The `preset` field in workflow nodes is resolved by:
+1. Filesystem: `workflows/presets/{name}.md`
+2. Database: `agent_presets` table by name
+3. Fallback: generic description
+
+Templates use `{{PLACEHOLDER}}` syntax resolved at spawn time (e.g., `{{ROUND}}`, `{{HYPOTHESIS_ID}}`).
+
+### Registrar
+
+Server-side module for statistical test budget tracking. Maintains a test registry and applies Benjamini-Hochberg FDR correction after each test. Used by research workflows to prevent p-hacking.
+
+---
+
+## Frontend
+
+### Layout
+
+```
++--sidebar--+---main area----------------------------+
+| Workspace  | Terminal Grid (Allotment split panes)   |
+| Terminals  |   +----------+  +----------+           |
+| Spawn Btn  |   | Agent 1  |  | Agent 2  |           |
+| Term List  |   +----------+  +----------+           |
+|            +----------------------------------------+
+| Workflow   | DAG Visualization (220px, pan/zoom)     |
+| File Pick  |  [node]-->[node]-->[node]-->[node]      |
+| Start/Stop +----------------------------------------+
++------------+
+```
+
+- **Sidebar**: workspace selector, spawn agent button, terminal list, workflow controls
+- **Terminal grid**: resizable split panes (Allotment), binary tree layout
+- **Bottom panel**: DAG visualization (horizontal left-to-right flow, pan with drag, zoom with wheel, auto-fit centered)
+
+### State Management
+
+- Terminal state: React external store (`useSyncExternalStore`)
+- Layout state: binary tree in `useState`, synced with terminal state via `useEffect`
+- Workflow state: custom `useWorkflowState` hook, shared between sidebar and DAG panel
+
+### Design System
+
+Dark theme with CSS custom properties: 4-layer surface hierarchy, 3-tier text, semantic colors (success/error), Inter font for UI, monospace for terminals.
+
+---
+
+## Database
+
+SQLite at `~/.caam/caam.db` with WAL journal mode.
 
 | Table | Purpose |
 |---|---|
 | `workspaces` | Saved workspace paths with usage stats |
-| `workspace_agents` | Agent configurations per workspace (legacy, from Phase 1) |
-| `agent_presets` | Reusable agent purpose templates with use_count |
+| `workspace_agents` | Agent configurations per workspace |
+| `agent_presets` | Reusable purpose templates (cross-project) |
+| `workflow_runs` | Workflow execution history |
+| `workflow_events` | Per-node state transition log |
 
-### WebSocket Protocol
+---
 
-Single multiplexed WebSocket connection per browser client on `/ws`.
+## REST API
 
-**Client -> Server:**
-
-| Message | Fields | Description |
+| Endpoint | Method | Description |
 |---|---|---|
-| `terminal:spawn` | name, cwd, command?, purpose?, presetId? | Create new terminal |
-| `terminal:input` | terminalId, data | Send keystrokes |
-| `terminal:resize` | terminalId, cols, rows | Resize terminal |
-| `terminal:kill` | terminalId | Kill terminal process |
-| `terminal:subscribe` | terminalId | Start receiving output |
-| `terminal:list` | -- | Request terminal list |
-
-**Server -> Client:**
-
-| Message | Fields | Description |
-|---|---|---|
-| `terminal:created` | terminalId, name | Terminal spawned |
-| `terminal:output` | terminalId, data | PTY output chunk |
-| `terminal:exited` | terminalId, exitCode | Terminal process ended |
-| `terminal:list` | terminals[] | All active terminals |
-| `error` | message | Error message |
+| `/api/health` | GET | Health check |
+| `/api/terminals` | GET | List active terminals |
+| `/api/validate-path` | POST | Check directory exists |
+| `/api/list-dirs` | GET | Directory autocomplete |
+| `/api/workspaces` | GET/POST | Workspace CRUD |
+| `/api/workspaces/:id` | PUT/DELETE | Workspace update/delete |
+| `/api/workspaces/:id/select` | POST | Mark workspace used |
+| `/api/agent-presets` | GET/POST | Preset CRUD |
+| `/api/agent-presets/:id` | PUT/DELETE | Preset update/delete |
+| `/api/agent-presets/seed` | POST | Import presets from filesystem |
+| `/api/workflow-files` | GET | List workflow YAML files |
+| `/api/workflow-files/:name` | GET | Read workflow YAML content |
+| `/api/workflows` | GET | Workflow run history |
+| `/api/workflows/:id` | GET | Workflow run details + events |
 
 ---
-
-## Frontend Architecture
-
-### State Management
-
-Terminal state is managed via a **React external store** (`terminal-store.ts`) using `useSyncExternalStore`. The store:
-- Processes incoming WebSocket messages (created, exited, list, output)
-- Maintains a `Map<string, TerminalInfo>` of active terminals
-- Maintains per-terminal output listener sets for xterm.js subscriptions
-- Exposes `useTerminals()` hook and `subscribeToOutput()` function
-
-### Layout System
-
-The layout is a **binary tree** (`split-tree.ts`):
-
-```typescript
-type LayoutNode =
-  | { type: 'leaf'; terminalId: string | null }
-  | { type: 'split'; direction: 'horizontal' | 'vertical'; ratio: number;
-      children: [LayoutNode, LayoutNode] };
-```
-
-Pure functions mutate the tree immutably:
-- `splitLeaf(tree, terminalId, direction)` -- split a terminal's pane
-- `mergePane(tree, terminalId)` -- remove a terminal and collapse its parent split
-- `assignTerminals(tree, ids)` -- fill empty leaves with terminal IDs
-- `createPreset(cols, rows)` -- generate balanced grid layouts
-
-The tree is rendered by `SplitLayout` using the Allotment library for resizable panes. Each leaf renders either a `TerminalPane` (if it has a terminal) or an `EmptySlot`.
-
-A `useEffect` in `App.tsx` syncs the layout with terminal state:
-1. Collapses panes of exited terminals (via `mergePane`)
-2. Clears stale terminal IDs from root leaves that can't be merged
-3. Assigns unassigned terminals to empty slots
-
-### Component Hierarchy
-
-```
-App
-  TerminalManager (sidebar)
-    WorkspaceSelector
-    "Spawn Agent" button -> opens SpawnModal
-    Terminal list with kill buttons
-  SplitLayout (main area)
-    RenderNode (recursive)
-      TerminalPane (occupied leaf)
-        xterm.js terminal
-        PaneToolbar (split H/V, close)
-      EmptySlot (empty leaf) -> opens SpawnModal
-  SpawnModal (overlay, when open)
-    Preset quicklist (left sidebar)
-    Name input + Purpose textarea (right form)
-    Save as Preset / Cancel / Spawn buttons
-```
-
-### Terminal Rendering
-
-`TerminalPane` wraps xterm.js with:
-- WebGL addon for hardware-accelerated rendering (canvas fallback)
-- Manual cell dimension calculation (reading xterm internals) for accurate fitting
-- `ResizeObserver` for responsive resize on pane drag
-- 100ms delay before subscribing to allow layout to settle
-- Buffer reset before subscribing for clean slate on reconnect
-
-### Design System
-
-Dark theme defined in `theme.css` with CSS custom properties:
-- 4-layer surface hierarchy: `bg` -> `surface-1` -> `surface-2` -> `surface-3`
-- Border colors with focus variant
-- 3-tier text hierarchy: primary, secondary, muted
-- Semantic colors: success (green), error (red) with background variants
-- Inter font for UI, JetBrains Mono / Fira Code for monospace
-- 4px / 6px border radius tokens
-
----
-
-## Data Flow
-
-### Agent Spawn Flow
-
-```
-User clicks "Spawn Agent"
-  -> SpawnModal opens
-  -> User fills name + purpose (or selects preset)
-  -> Click "Spawn"
-  -> Frontend sends terminal:spawn { name, cwd, purpose, presetId }
-  -> Server: registry.spawn() creates PTY process
-  -> Server: bootstrap.createAgentFiles() writes purpose.md + inbox.md
-  -> Server: bootstrap.regenerateAgentsList() updates agents.md
-  -> Server: presetRepo.incrementUseCount() if preset used
-  -> Server sends terminal:created to client
-  -> Store adds terminal, useEffect assigns to empty layout slot
-  -> TerminalPane mounts, subscribes to output, sends resize
-  -> Server injects purpose prompt after 2s delay
-  -> Claude Code reads purpose.md and starts working
-```
-
-### Inter-Agent Communication Flow
-
-```
-Agent A writes to Agent B's inbox:
-  -> Agent A appends to .caam/agents/agent-b/inbox.md
-  -> chokidar detects file change
-  -> KnowledgeWatcher debounces (300ms)
-  -> KnowledgeWatcher finds Agent B's terminal via registry.getByName()
-  -> Injects "[CAAM] New message in your inbox..." into Agent B's terminal
-  -> Agent B reads .caam/agents/agent-b/inbox.md
-```
-
-### Terminal Close Flow
-
-```
-User clicks Close Pane (or types "exit"):
-  -> Frontend sends terminal:kill
-  -> Server: registry.kill() -> session.destroy() -> PTY killed
-  -> session.destroy() fires exit listeners
-  -> Server sends terminal:exited to client
-  -> Store removes terminal
-  -> useEffect: mergePane() collapses layout, clearStale() handles root leaves
-  -> Server: onTerminalExit callback regenerates agents.md
-```
-
----
-
-## Network Topology
-
-```
-Browser (localhost:11000)
-  |
-  | Vite dev proxy
-  |
-  +-- /api/* ---------> Express (localhost:11001)
-  +-- /ws ------------> WebSocket (localhost:11001/ws)
-  |
-  | xterm.js <-> WebSocket <-> node-pty
-  |
-  +-- Terminal 1 (PowerShell -> claude)
-  +-- Terminal 2 (PowerShell -> claude)
-  +-- Terminal N ...
-```
 
 ## Ports
 
@@ -343,174 +329,28 @@ Browser (localhost:11000)
 
 ---
 
-## Phasing
+## Example Use Case: Research Data Analysis Swarm
 
-| Phase | Status | Description |
-|---|---|---|
-| Phase 1: Terminal Grid | Complete | PTY management, split panes, workspace persistence |
-| Phase 2: Agent Communication | Complete | Spawn modal, purpose editor, presets, FileWatcher inbox injection, agents.md registry |
-| Phase 3: Workflow Orchestration | Complete | Signal protocol, DAG executor, YAML parser, registrar, WorkflowPanel |
-| Research Swarm Schemas | Complete | Hypothesis DSL, TestPlan, DataManifest, hypothesis validator |
+CAAM includes a complete 13-agent research pipeline (`workflows/research-swarm.yaml`) as a reference implementation:
 
----
+**Phase 0 -- Ingestion**: Ingestor (format detection, normalization) -> Profiler (EDA, data manifest)
 
-## Workflow Orchestration (Phase 3)
+**Phase 1 -- Hypothesis Screening**: Hypothesist (structured hypothesis generation) -> Adversary (adversarial review) -> Judge (filter + routing, loops back for more if needed)
 
-### Signal Protocol
+**Phase 2 -- Validation**: Per-hypothesis fan-out: Architect (test design) -> Coder (script implementation) -> Auditor <-> Fixer (code review loop) -> Executor (script execution) -> Falsifier (robustness testing)
 
-Agents report task completion by writing JSON signal files to `.caam/shared/signals/`. The signal file is the sole mechanism by which the DAG executor learns that an agent has finished. Signals use atomic write (`.tmp` + rename) and include SHA-256 checksums for output integrity verification.
+**Phase 3 -- Synthesis**: Generalizer (condition relaxation) -> Meta-Analyst (clustering, causal graph, importance ranking, final report)
 
-Signal statuses: `success`, `failure`, `branch` (with goto decision), `budget_exhausted`.
-
-### DAG Executor
-
-The `DagExecutor` manages a directed acyclic graph of agent nodes with a state machine:
-
-```
-pending -> ready -> spawning -> running -> validating -> completed
-                                  |            |
-                                  v            v
-                               retrying     retrying -> failed
-```
-
-Features: timeout handling, retry with exponential context, crash detection (per-terminal exit listeners), branch decisions with scoped sub-DAG fan-out, budget exhaustion propagation.
-
-### Registrar
-
-Server-side module that maintains a test registry and applies Benjamini-Hochberg FDR correction after each test execution. Tracks test budget and adjusts significance thresholds.
-
-### Workflow YAML
-
-Declarative schema for multi-agent pipelines with `depends_on`, `branch`, `max_invocations` (loop control), per-node timeout/retry overrides, and cycle detection via Kahn's algorithm.
-
-### Workflow Files
-
-```
-packages/server/src/modules/workflow/
-  types.ts                  # Signal, DagNode, WorkflowConfig, NodeState
-  utils.ts                  # Atomic JSON write, SHA-256, sleep
-  signal-validator.ts       # Schema validation + output integrity
-  signal-watcher.ts         # chokidar on *.done.json
-  yaml-parser.ts            # YAML parse + validate + cycle detection
-  dag-executor.ts           # Core DAG state machine
-  registrar.ts              # BH FDR correction + budget
-  purpose-templates.ts      # Generate purpose.md with signal protocol
-  hypothesis-types.ts       # Hypothesis DSL type definitions
-  manifest-types.ts         # Profiler data manifest types
-  test-plan-types.ts        # Architect test plan types
-  hypothesis-validator.ts   # DSL validation rules
-  synthesis-types.ts        # Meta-Analyst, Falsifier, Generalizer types
-```
+The research swarm demonstrates: structured data schemas (Hypothesis DSL with 6 types, TestPlan with 4 modes, DataManifest), Benjamini-Hochberg FDR correction, effect size joint acceptance gates, 6 falsification strategies, and a comprehensive final report.
 
 ---
 
-## Research Swarm Schemas
+## Testing
 
-### Hypothesis DSL
-
-Central artifact flowing through the agent pipeline: Hypothesist -> Adversary -> Judge -> Architect -> Coder -> Falsifier -> Generalizer.
-
-Six hypothesis types: `association`, `difference`, `distribution`, `causal`, `temporal`, `structural`. Each has a type-specific payload with structured fields for machine execution.
-
-Lifecycle annotations accumulate as the hypothesis flows through agents: `adversary_review`, `judge_verdict`, `test_result`, `falsification_result`, `generalization`.
-
-Joint acceptance gate: both statistical significance (after BH correction) AND practical significance (effect size threshold) must pass.
-
-### TestPlan (Architect Output)
-
-Four modes: `correlation`, `causal`, `distributional`, `structural`. Each with mode-specific plan (test selection, identification strategy, robustness checks) plus common preprocessing steps, assumption checks, and sample size analysis.
-
-The Architect chooses mode and test based on hypothesis type and data manifest column types (decision matrix in spec).
-
-### DataManifest (Profiler Output)
-
-Comprehensive dataset profile: metadata (shape, time series detection, natural experiments), per-column profiles (semantic types, stats, distribution, anomalies), cross-column analysis (correlations, collinearity), data quality report, and analysis leads for the Hypothesist.
-
-### Schema File Locations
-
-| Schema | Written by | File location |
-|---|---|---|
-| DataManifest | Profiler | `.caam/shared/profiling-report.json` |
-| Hypothesis | Hypothesist | `.caam/shared/hypotheses/H-{NNN}.json` |
-| TestPlan | Architect | `.caam/shared/test-plans/H-{NNN}-plan.json` |
-| TestResult | Executor | `.caam/shared/results/H-{NNN}-result.json` |
-| FinalReport | Meta-Analyst | `.caam/shared/final-report.json` + `.md` |
-
----
-
-## Synthesis Agents
-
-### Meta-Analyst
-
-Final agent that sees all outputs and produces a synthesis report. Five analysis tasks:
-1. **Finding clusters** -- groups hypotheses by shared variables, synthesizes mechanism narratives
-2. **Causal graph synthesis** -- merges validated causal edges into a DAG, detects contradictions
-3. **Consistency checks** -- Simpson's paradox, ecological fallacy, collider bias detection
-4. **Gap analysis** -- unexplored variables, unused leads, recoverable hypotheses
-5. **Importance ranking** -- composite score (statistical 0.15, practical 0.25, robustness 0.25, generalizability 0.15, novelty 0.20)
-
-### Falsifier
-
-Tries to break validated hypotheses. 8 strategies with applicability matrix per hypothesis type:
-- **Required** (permutation, bootstrap): failure = falsified
-- **Informational** (subgroup reversal, leave-one-out, temporal split, random confounder, collider check, effect threshold probe): contribute to robustness_score
-
-`robustness_score = n_survived / n_attempted`
-
-### Generalizer
-
-Relaxes conditions on validated hypotheses (Occam's razor). 6 strategies: remove subgroup filter, remove confounder, weaken condition, broaden variable, cross time period, merge related hypotheses. Runs tests directly (shortcut, not full pipeline).
-
-### Context Window Management
-
-`manifestSlice()` in purpose-templates.ts provides per-agent manifest filtering:
-- Full manifest: hypothesist, adversary, generalizer, meta_analyst
-- Filtered columns: architect, coder, auditor, fixer, falsifier
-- Summary only: judge
-- None: executor
-
-### DAG Executor Enhancements
-
-- **Concurrency limit**: `max_parallel_hypotheses` enforced via semaphore on scoped nodes
-- **Graceful degradation**: Meta-analyst runs when all scoped nodes terminate or when judge exhausts rounds with zero approvals
-- **Namespace guard**: `validateOutputNamespace()` ensures agents only write to their scope's paths
-- **Hypothesis IDs**: counter in `.caam/shared/hypothesis-counter.json`
-
----
-
-## Workflow Templates
-
-### Production Workflow
-
-`workflows/research-swarm.yaml` defines the complete 13-agent research swarm pipeline:
-
-```
-Phase 0: Ingestor -> Profiler
-Phase 1: Hypothesist -> Adversary -> Judge (loops up to 3 rounds)
-Phase 2: Architect -> Coder -> Auditor <-> Fixer (loop) -> Executor -> Falsifier
-Phase 3: Generalizer -> Meta-Analyst (waits for all hypothesis pipelines)
-```
-
-Config: 50 test budget, 3 parallel hypothesis sub-DAGs, 8 hypotheses per batch, BH FDR at alpha=0.05.
-
-### Agent Presets
-
-13 preset templates in `workflows/presets/research/`:
-
-| Preset | Key Responsibilities |
-|---|---|
-| `ingestor.md` | Format detection, normalization, parquet + CSV sample output |
-| `profiler.md` | Column profiles, semantic types, correlations, quality report, analysis leads |
-| `hypothesist.md` | Generate N structured hypotheses from manifest leads, diversify types |
-| `adversary.md` | 8 attack checks (tautology through causal plausibility), pass/flag/reject |
-| `judge.md` | Triage, apply fixes, route (architect fan-out vs hypothesist loop vs meta-analyst) |
-| `architect.md` | Test mode selection, specific test choice, preprocessing, power analysis |
-| `coder.md` | Self-contained Python script, atomic result write, error handling |
-| `auditor.md` | Bug/logic/missing-check audit, route to fixer or executor |
-| `fixer.md` | Surgical bug fixes from audit, verify ast.parse, atomic overwrite |
-| `executor.md` | Budget check, subprocess with timeout, failure result on crash |
-| `falsifier.md` | 6 strategies (permutation, bootstrap, subgroup, LOO, temporal, random confounder) |
-| `generalizer.md` | 4 strategies (remove subgroup, remove covariate, weaken threshold, correlated variable) |
-| `meta-analyst.md` | Clustering, causal graph, consistency, gaps, importance ranking, narrative report |
-
-Templates use `{{PLACEHOLDER}}` syntax resolved at spawn time by `purpose-templates.ts`.
+63 tests across 6 test files:
+- Signal validator: schema + output integrity (12 tests)
+- YAML parser: validation + cycle detection (8 tests)
+- DAG executor: state machine + node graph (22 tests)
+- Registrar: BH correction + budget (7 tests)
+- Hypothesis validator: DSL rules (10 tests)
+- Workflow repository: run + event CRUD (4 tests)
