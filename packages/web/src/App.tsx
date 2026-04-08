@@ -3,6 +3,7 @@ import { WebSocketClient } from './services/websocket-client';
 import { initTerminalStore, useTerminals } from './stores/terminal-store';
 import { SplitLayout } from './components/grid/SplitLayout';
 import { TerminalManager } from './components/sidebar/TerminalManager';
+import { SpawnModal } from './components/sidebar/SpawnModal';
 import { type LayoutNode, createPreset, assignTerminals, splitLeaf, mergePane } from './components/grid/split-tree';
 
 const wsUrl = `ws://${window.location.hostname}:${window.location.port}/ws`;
@@ -12,6 +13,7 @@ export function App() {
   const terminals = useTerminals();
   const [layout, setLayout] = useState<LayoutNode>({ type: 'leaf', terminalId: null });
   const [cwd, setCwd] = useState<string | null>(null);
+  const [showSpawnModal, setShowSpawnModal] = useState(false);
 
   useEffect(() => {
     const ws = new WebSocketClient(wsUrl);
@@ -32,19 +34,23 @@ export function App() {
     setLayout(assignTerminals(tree, terminalIds));
   }
 
-  function handleSpawn(name: string, spawnCwd: string) {
+  function handleSpawn(_name: string, spawnCwd: string) {
     setCwd(spawnCwd);
-    wsRef.current?.send({ type: 'terminal:spawn', name, cwd: spawnCwd });
   }
 
-  function spawnNewTerminal() {
+  function openSpawnModal() {
     if (!cwd) return;
-    const name = `agent-${Date.now().toString(36)}`;
-    wsRef.current?.send({ type: 'terminal:spawn', name, cwd });
+    setShowSpawnModal(true);
+  }
+
+  function handleModalSpawn(name: string, purpose: string, presetId?: number) {
+    if (!cwd) return;
+    setShowSpawnModal(false);
+    wsRef.current?.send({ type: 'terminal:spawn', name, cwd, purpose: purpose || undefined, presetId });
   }
 
   function handleSpawnInSlot(_leafPath: string) {
-    spawnNewTerminal();
+    openSpawnModal();
   }
 
   function handleKill(id: string) {
@@ -53,19 +59,16 @@ export function App() {
 
   function handleSplitH(terminalId: string) {
     setLayout(prev => splitLeaf(prev, terminalId, 'horizontal'));
-    // The new empty slot will be filled by the useEffect that assigns unassigned terminals
-    spawnNewTerminal();
+    openSpawnModal();
   }
 
   function handleSplitV(terminalId: string) {
     setLayout(prev => splitLeaf(prev, terminalId, 'vertical'));
-    spawnNewTerminal();
+    openSpawnModal();
   }
 
   function handleMerge(terminalId: string) {
-    // Kill the terminal process on the server
     wsRef.current?.send({ type: 'terminal:kill', terminalId });
-    // Remove this pane from the layout immediately
     setLayout(prev => mergePane(prev, terminalId));
   }
 
@@ -76,8 +79,6 @@ export function App() {
     setLayout(prev => {
       let tree = prev;
 
-      // 1) Collapse panes whose terminal has exited (mergePane removes + collapses)
-      //    Then null out any remaining stale IDs (e.g. root leaf that can't be merged)
       function findExited(node: LayoutNode): string[] {
         if (node.type === 'leaf') {
           return node.terminalId && !activeIds.has(node.terminalId) ? [node.terminalId] : [];
@@ -101,7 +102,6 @@ export function App() {
       }
       tree = clearStale(tree);
 
-      // 2) Assign unassigned terminals to empty slots
       const assignedIds = new Set<string>();
       function collectAssigned(node: LayoutNode) {
         if (node.type === 'leaf' && node.terminalId) assignedIds.add(node.terminalId);
@@ -137,7 +137,9 @@ export function App() {
     <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-ui)' }}>
       <TerminalManager
         terminals={terminals}
+        ws={wsRef.current}
         onSpawn={handleSpawn}
+        onOpenSpawnModal={openSpawnModal}
         onKill={handleKill}
         onPresetSelect={handlePresetSelect}
       />
@@ -150,6 +152,12 @@ export function App() {
         onSplitV={handleSplitV}
         onMerge={handleMerge}
       />
+      {showSpawnModal && (
+        <SpawnModal
+          onSpawn={handleModalSpawn}
+          onClose={() => setShowSpawnModal(false)}
+        />
+      )}
     </div>
   );
 }

@@ -2,10 +2,20 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type http from 'node:http';
 import type { ClientMessage, ServerMessage } from './protocol.js';
 import type { TerminalRegistry } from '../modules/terminal/terminal-registry.js';
+import type { AgentBootstrap } from '../modules/knowledge/agent-bootstrap.js';
+import type { PresetRepository } from '../db/preset-repository.js';
+import type { WorkflowRepository } from '../db/workflow-repository.js';
+import { DagExecutor } from '../modules/workflow/dag-executor.js';
+import { parseWorkflow } from '../modules/workflow/yaml-parser.js';
+
+const activeExecutors = new Map<string, DagExecutor>();
 
 export function createWebSocketServer(
   server: http.Server,
   registry: TerminalRegistry,
+  bootstrap: AgentBootstrap,
+  presetRepo: PresetRepository,
+  workflowRepo: WorkflowRepository,
 ): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -22,7 +32,7 @@ export function createWebSocketServer(
       }
 
       try {
-        await handleMessage(ws, msg, registry, cleanups);
+        await handleMessage(ws, msg, registry, cleanups, bootstrap, presetRepo, workflowRepo);
       } catch (err) {
         sendMessage(ws, {
           type: 'error',
@@ -47,20 +57,39 @@ async function handleMessage(
   msg: ClientMessage,
   registry: TerminalRegistry,
   cleanups: Array<() => void>,
+  bootstrap: AgentBootstrap,
+  presetRepo: PresetRepository,
+  workflowRepo: WorkflowRepository,
 ): Promise<void> {
   switch (msg.type) {
     case 'terminal:spawn': {
+      if (msg.cwd) {
+        bootstrap.setCwd(msg.cwd);
+      }
       const info = await registry.spawn({
         name: msg.name,
         command: msg.command,
         cwd: msg.cwd,
+        purpose: msg.purpose,
       });
+      if (msg.purpose && msg.name) {
+        bootstrap.createAgentFiles(msg.name, msg.purpose);
+        bootstrap.regenerateAgentsList(registry.listWithPurpose());
+        const session = registry.get(info.id);
+        if (session) {
+          setTimeout(() => {
+            session.write(bootstrap.getInjectionPrompt(msg.name!));
+          }, 2000);
+        }
+      }
+      if (msg.presetId) {
+        presetRepo.incrementUseCount(msg.presetId);
+      }
       sendMessage(ws, {
         type: 'terminal:created',
         terminalId: info.id,
         name: info.name,
       });
-      // Client should send terminal:subscribe to start receiving output
       break;
     }
 
@@ -95,10 +124,6 @@ async function handleMessage(
         sendMessage(ws, { type: 'error', message: `Terminal not found: ${msg.terminalId}` });
         return;
       }
-      // For reconnecting to an existing session (command already running),
-      // force a redraw by toggling the terminal size. This sends SIGWINCH
-      // to the running program, causing it to redraw at the current dimensions.
-      // Skip for newly spawned terminals -- resize handler will launch the command.
       if (session.isCommandRunning) {
         const info = session.info;
         await session.resize(info.cols, info.rows + 1);
@@ -128,6 +153,65 @@ async function handleMessage(
         type: 'terminal:list',
         terminals: registry.list(),
       });
+      break;
+    }
+
+    case 'workflow:start': {
+      const config = parseWorkflow(msg.yamlContent);
+      const executor = new DagExecutor(config, msg.workspacePath, registry, bootstrap, presetRepo);
+
+      executor.setStateChangeHandler((runId, node, fromState, toState, event, terminalId) => {
+        sendMessage(ws, { type: 'workflow:node-update', runId, node, fromState, toState, event, terminalId });
+      });
+
+      executor.setCompleteHandler((runId, summary) => {
+        workflowRepo.updateRunStatus(runId, summary.failed > 0 ? 'failed' : 'completed', summary.completed, summary.failed);
+        sendMessage(ws, { type: 'workflow:completed', runId, summary });
+        activeExecutors.delete(runId);
+      });
+
+      activeExecutors.set(executor.runId, executor);
+
+      const nodeCount = Object.keys(config.nodes).length;
+      workflowRepo.createRun({
+        id: executor.runId,
+        workflow_name: config.name,
+        workspace_path: msg.workspacePath,
+        yaml_content: msg.yamlContent,
+        status: 'running',
+        node_count: nodeCount,
+      });
+
+      await executor.start();
+
+      const nodes = [...executor.getNodes().values()].map(n => ({ name: n.name, state: n.state, scope: n.scope }));
+      sendMessage(ws, { type: 'workflow:started', runId: executor.runId, nodeCount, nodes });
+      break;
+    }
+
+    case 'workflow:abort': {
+      const executor = activeExecutors.get(msg.runId);
+      if (!executor) {
+        sendMessage(ws, { type: 'error', message: `Workflow run not found: ${msg.runId}` });
+        return;
+      }
+      await executor.abort();
+      workflowRepo.updateRunStatus(msg.runId, 'aborted', 0, 0);
+      activeExecutors.delete(msg.runId);
+      break;
+    }
+
+    case 'workflow:status': {
+      const run = workflowRepo.getRun(msg.runId);
+      if (!run) {
+        sendMessage(ws, { type: 'error', message: `Workflow run not found: ${msg.runId}` });
+        return;
+      }
+      const executor = activeExecutors.get(msg.runId);
+      if (executor) {
+        const nodes = [...executor.getNodes().values()].map(n => ({ name: n.name, state: n.state, scope: n.scope }));
+        sendMessage(ws, { type: 'workflow:started', runId: msg.runId, nodeCount: run.node_count, nodes });
+      }
       break;
     }
 

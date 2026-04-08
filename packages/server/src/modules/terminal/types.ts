@@ -16,6 +16,8 @@ export interface TerminalConfig {
   cwd?: string;
   cols?: number;
   rows?: number;
+  purpose?: string;
+  presetId?: number;
 }
 
 export const DEFAULT_COMMAND = 'claude --dangerously-skip-permissions';

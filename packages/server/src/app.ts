@@ -6,6 +6,10 @@ import { TerminalRegistry } from './modules/terminal/terminal-registry.js';
 import { createWebSocketServer } from './transport/websocket.js';
 import { getDb } from './db/database.js';
 import { WorkspaceRepository } from './db/workspace-repository.js';
+import { PresetRepository } from './db/preset-repository.js';
+import { WorkflowRepository } from './db/workflow-repository.js';
+import { AgentBootstrap } from './modules/knowledge/agent-bootstrap.js';
+import { KnowledgeWatcher } from './modules/knowledge/knowledge-watcher.js';
 
 const PORT = parseInt(process.env.PORT ?? '11001', 10);
 
@@ -14,6 +18,8 @@ app.use(express.json());
 const server = http.createServer(app);
 
 const registry = new TerminalRegistry();
+const bootstrap = new AgentBootstrap();
+const watcher = new KnowledgeWatcher(registry);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
@@ -72,6 +78,8 @@ app.get('/api/list-dirs', (req, res) => {
 });
 
 const workspaceRepo = new WorkspaceRepository(getDb());
+const presetRepo = new PresetRepository(getDb());
+const workflowRepo = new WorkflowRepository(getDb());
 
 app.get('/api/workspaces', (_req, res) => {
   const workspaces = workspaceRepo.list();
@@ -105,7 +113,52 @@ app.post('/api/workspaces/:id/select', (req, res) => {
   res.json({ ok: true });
 });
 
-createWebSocketServer(server, registry);
+app.get('/api/agent-presets', (_req, res) => {
+  res.json(presetRepo.list());
+});
+
+app.post('/api/agent-presets', (req, res) => {
+  try {
+    const preset = presetRepo.create(req.body);
+    res.json(preset);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to create preset' });
+  }
+});
+
+app.put('/api/agent-presets/:id', (req, res) => {
+  presetRepo.update(Number(req.params.id), req.body);
+  res.json({ ok: true });
+});
+
+app.delete('/api/agent-presets/:id', (req, res) => {
+  presetRepo.remove(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+app.get('/api/workflows', (_req, res) => {
+  res.json(workflowRepo.listRuns());
+});
+
+app.get('/api/workflows/:id', (req, res) => {
+  const run = workflowRepo.getRun(req.params.id);
+  if (!run) { res.status(404).json({ error: 'Not found' }); return; }
+  res.json({ ...run, events: workflowRepo.getEvents(req.params.id) });
+});
+
+createWebSocketServer(server, registry, bootstrap, presetRepo, workflowRepo);
+
+registry.onTerminalExit(() => {
+  bootstrap.regenerateAgentsList(registry.listWithPurpose());
+});
+
+registry.onSpawn(() => {
+  const caamDir = bootstrap.getCaamDir();
+  if (caamDir) {
+    const cwd = path.dirname(caamDir);
+    watcher.start(cwd);
+  }
+});
 
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
