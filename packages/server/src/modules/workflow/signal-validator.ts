@@ -26,7 +26,7 @@ export function validateSignalSchema(signal: unknown): signal is SignalFile {
     const out = o as Record<string, unknown>;
     if (typeof out.path !== 'string') return false;
     if (typeof out.sha256 !== 'string') return false;
-    if (typeof out.size_bytes !== 'number') return false;
+    if (typeof out.size_bytes !== 'number' && typeof out.size !== 'number') return false;
   }
 
   if (typeof s.metrics !== 'object' || s.metrics === null) return false;
@@ -60,8 +60,9 @@ export async function validateSignalOutputs(
     }
 
     const stat = await fs.stat(fullPath);
-    if (stat.size !== output.size_bytes) {
-      errors.push({ path: output.path, issue: 'size_mismatch', expected: output.size_bytes, actual: stat.size });
+    const expectedSize = output.size_bytes ?? (output as Record<string, unknown>).size as number;
+    if (expectedSize !== undefined && stat.size !== expectedSize) {
+      errors.push({ path: output.path, issue: 'size_mismatch', expected: expectedSize, actual: stat.size });
       continue;
     }
 
