@@ -5,7 +5,8 @@
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   font-family: var(--font-ui);
 }
 
