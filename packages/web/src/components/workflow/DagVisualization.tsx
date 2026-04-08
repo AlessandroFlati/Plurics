@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import './DagVisualization.css';
 
 interface DagNode {
@@ -32,6 +32,8 @@ const LAYER_GAP = 80;
 const NODE_GAP = 30;
 const PADDING = 40;
 const NODE_RX = 8;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 3;
 
 const STATE_COLORS: Record<string, string> = {
   pending: '#525252',
@@ -61,7 +63,6 @@ function parseEdgesFromYaml(yamlContent: string): Edge[] {
 
     if (!inNodes) continue;
 
-    // Detect node name (indented exactly 2 spaces, ends with colon)
     const nodeMatch = line.match(/^  ([a-z_]+):$/);
     if (nodeMatch) {
       currentNode = nodeMatch[1];
@@ -70,7 +71,6 @@ function parseEdgesFromYaml(yamlContent: string): Edge[] {
 
     if (!currentNode) continue;
 
-    // Parse depends_on
     const depsMatch = trimmed.match(/^depends_on:\s*\[(.+)\]$/);
     if (depsMatch) {
       const deps = depsMatch[1].split(',').map(d => d.trim());
@@ -79,7 +79,6 @@ function parseEdgesFromYaml(yamlContent: string): Edge[] {
       }
     }
 
-    // Parse depends_on_all
     const depsAllMatch = trimmed.match(/^depends_on_all:\s*\[(.+)\]$/);
     if (depsAllMatch) {
       const deps = depsAllMatch[1].split(',').map(d => d.trim());
@@ -88,7 +87,6 @@ function parseEdgesFromYaml(yamlContent: string): Edge[] {
       }
     }
 
-    // Parse next
     const nextMatch = trimmed.match(/^next:\s*(\w+)$/);
     if (nextMatch) {
       edges.push({ from: currentNode, to: nextMatch[1] });
@@ -102,7 +100,6 @@ function computeLayout(nodes: DagNode[], edges: Edge[]): { layout: LayoutNode[];
   const nodeNames = nodes.map(n => n.name);
   const nodeMap = new Map(nodes.map(n => [n.name, n]));
 
-  // Compute layers via topological sort (Kahn's algorithm)
   const inDegree = new Map<string, number>();
   const adj = new Map<string, string[]>();
   for (const name of nodeNames) {
@@ -137,12 +134,10 @@ function computeLayout(nodes: DagNode[], edges: Edge[]): { layout: LayoutNode[];
     }
   }
 
-  // Assign layers to nodes not reached by topo sort (cycles)
   for (const name of nodeNames) {
     if (!layers.has(name)) layers.set(name, 0);
   }
 
-  // Group by layer
   const layerGroups = new Map<number, string[]>();
   for (const [name, layer] of layers) {
     if (!layerGroups.has(layer)) layerGroups.set(layer, []);
@@ -178,15 +173,84 @@ function computeLayout(nodes: DagNode[], edges: Edge[]): { layout: LayoutNode[];
 
 export function DagVisualization({ nodes, yamlContent }: DagVisualizationProps) {
   const edges = useMemo(() => parseEdgesFromYaml(yamlContent), [yamlContent]);
-  const { layout, width, height } = useMemo(() => computeLayout(nodes, edges), [nodes, edges]);
-
+  const { layout, width: graphW, height: graphH } = useMemo(() => computeLayout(nodes, edges), [nodes, edges]);
   const layoutMap = new Map(layout.map(n => [n.name, n]));
-
   const activeStates = new Set(['running', 'spawning', 'validating']);
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+
+  // Center the graph on mount and when graph size changes
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const cw = el.clientWidth;
+    const ch = el.clientHeight;
+    const scaleX = cw / graphW;
+    const scaleY = ch / graphH;
+    const fitZoom = Math.min(scaleX, scaleY, 1) * 0.9;
+    setZoom(fitZoom);
+    setPan({
+      x: (cw - graphW * fitZoom) / 2,
+      y: (ch - graphH * fitZoom) / 2,
+    });
+  }, [graphW, graphH]);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+
+    // Zoom towards cursor
+    setPan(prev => ({
+      x: mx - (mx - prev.x) * (newZoom / zoom),
+      y: my - (my - prev.y) * (newZoom / zoom),
+    }));
+    setZoom(newZoom);
+  }, [zoom]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    setDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+  }, [pan]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragging) return;
+    setPan({
+      x: dragStart.current.panX + (e.clientX - dragStart.current.x),
+      y: dragStart.current.panY + (e.clientY - dragStart.current.y),
+    });
+  }, [dragging]);
+
+  const handleMouseUp = useCallback(() => {
+    setDragging(false);
+  }, []);
+
   return (
-    <div className="dag-viz">
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+    <div
+      className="dag-viz"
+      ref={containerRef}
+      onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
+      <svg
+        width="100%"
+        height="100%"
+        style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+      >
         <defs>
           <marker id="dag-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
             <path d="M0,0 L8,3 L0,6" className="dag-viz-arrowhead" />
@@ -196,65 +260,67 @@ export function DagVisualization({ nodes, yamlContent }: DagVisualizationProps) 
           </marker>
         </defs>
 
-        {/* Edges */}
-        {edges.map((edge, i) => {
-          const from = layoutMap.get(edge.from);
-          const to = layoutMap.get(edge.to);
-          if (!from || !to) return null;
+        <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+          {/* Edges */}
+          {edges.map((edge, i) => {
+            const from = layoutMap.get(edge.from);
+            const to = layoutMap.get(edge.to);
+            if (!from || !to) return null;
 
-          const x1 = from.x + NODE_W / 2;
-          const y1 = from.y + NODE_H;
-          const x2 = to.x + NODE_W / 2;
-          const y2 = to.y;
+            const x1 = from.x + NODE_W / 2;
+            const y1 = from.y + NODE_H;
+            const x2 = to.x + NODE_W / 2;
+            const y2 = to.y;
 
-          const isActive = activeStates.has(from.state) || activeStates.has(to.state);
-          const midY = (y1 + y2) / 2;
+            const isActive = activeStates.has(from.state) || activeStates.has(to.state);
+            const midY = (y1 + y2) / 2;
 
-          return (
-            <path
-              key={`edge-${i}`}
-              d={`M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`}
-              className={`dag-viz-edge${isActive ? ' dag-viz-edge--active' : ''}`}
-              markerEnd={`url(#dag-arrow${isActive ? '-active' : ''})`}
-            />
-          );
-        })}
-
-        {/* Nodes */}
-        {layout.map(node => {
-          const color = STATE_COLORS[node.state] ?? STATE_COLORS.pending;
-          const isActive = activeStates.has(node.state);
-          const displayName = node.name.length > 14 ? node.name.slice(0, 13) + '...' : node.name;
-
-          return (
-            <g key={node.name}>
-              <rect
-                x={node.x}
-                y={node.y}
-                width={NODE_W}
-                height={NODE_H}
-                rx={NODE_RX}
-                fill={color + '20'}
-                stroke={color}
-                strokeWidth={isActive ? 2 : 1}
+            return (
+              <path
+                key={`edge-${i}`}
+                d={`M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`}
+                className={`dag-viz-edge${isActive ? ' dag-viz-edge--active' : ''}`}
+                markerEnd={`url(#dag-arrow${isActive ? '-active' : ''})`}
               />
-              <text
-                className="dag-viz-node-label"
-                x={node.x + NODE_W / 2}
-                y={node.y + 22}
-              >
-                {displayName}
-              </text>
-              <text
-                className="dag-viz-node-state"
-                x={node.x + NODE_W / 2}
-                y={node.y + 38}
-              >
-                {node.state}{node.scope ? ` (${node.scope})` : ''}
-              </text>
-            </g>
-          );
-        })}
+            );
+          })}
+
+          {/* Nodes */}
+          {layout.map(node => {
+            const color = STATE_COLORS[node.state] ?? STATE_COLORS.pending;
+            const isActive = activeStates.has(node.state);
+            const displayName = node.name.length > 14 ? node.name.slice(0, 13) + '...' : node.name;
+
+            return (
+              <g key={node.name}>
+                <rect
+                  x={node.x}
+                  y={node.y}
+                  width={NODE_W}
+                  height={NODE_H}
+                  rx={NODE_RX}
+                  fill={color + '20'}
+                  stroke={color}
+                  strokeWidth={isActive ? 2 : 1}
+                />
+                <text
+                  className="dag-viz-node-label"
+                  x={node.x + NODE_W / 2}
+                  y={node.y + 22}
+                >
+                  {displayName}
+                </text>
+                <text
+                  className="dag-viz-node-state"
+                  x={node.x + NODE_W / 2}
+                  y={node.y + 38}
+                >
+                  {node.state}{node.scope ? ` (${node.scope})` : ''}
+                </text>
+              </g>
+            );
+          })}
+        </g>
       </svg>
     </div>
   );
