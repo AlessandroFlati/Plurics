@@ -47,6 +47,7 @@ export class DagExecutor {
   private onStateChange: StateChangeCallback | null = null;
   private onComplete: WorkflowCompleteCallback | null = null;
   private activeSubDags: number = 0;
+  private paused: boolean = false;
 
   constructor(
     workflowConfig: WorkflowConfig,
@@ -124,6 +125,7 @@ export class DagExecutor {
   }
 
   async abort(): Promise<void> {
+    this.paused = false;
     this.signalWatcher.stop();
     for (const [, node] of this.nodes) {
       if (node.timeoutTimer) {
@@ -138,6 +140,20 @@ export class DagExecutor {
       }
     }
     this.emitWorkflowComplete();
+  }
+
+  pause(): void {
+    this.paused = true;
+  }
+
+  resume(): void {
+    this.paused = false;
+    this.evaluateReadyNodes();
+    this.scheduleReadyNodes();
+  }
+
+  isPaused(): boolean {
+    return this.paused;
   }
 
   private async initializeSharedDirectory(): Promise<void> {
@@ -249,6 +265,7 @@ export class DagExecutor {
   }
 
   private async scheduleReadyNodes(): Promise<void> {
+    if (this.paused) return;
     const maxParallel = this.workflowConfig.config.max_parallel_hypotheses ?? Infinity;
     const readyNodes = [...this.nodes.entries()].filter(([, n]) => n.state === 'ready');
     for (const [name, node] of readyNodes) {

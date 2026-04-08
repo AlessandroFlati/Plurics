@@ -221,6 +221,28 @@ async function handleMessage(
       break;
     }
 
+    case 'workflow:pause': {
+      const executor = activeExecutors.get(msg.runId);
+      if (!executor) {
+        sendMessage(ws, { type: 'error', message: `Workflow run not found: ${msg.runId}` });
+        return;
+      }
+      executor.pause();
+      sendMessage(ws, { type: 'workflow:paused', runId: msg.runId });
+      break;
+    }
+
+    case 'workflow:resume': {
+      const executor = activeExecutors.get(msg.runId);
+      if (!executor) {
+        sendMessage(ws, { type: 'error', message: `Workflow run not found: ${msg.runId}` });
+        return;
+      }
+      executor.resume();
+      sendMessage(ws, { type: 'workflow:resumed', runId: msg.runId });
+      break;
+    }
+
     case 'workflow:status': {
       const run = workflowRepo.getRun(msg.runId);
       if (!run) {

@@ -24,6 +24,7 @@ export interface WorkflowState {
   nodes: WorkflowNode[];
   summary: WorkflowSummary | null;
   error: string;
+  paused: boolean;
 }
 
 interface WorkflowPanelProps {
@@ -40,6 +41,7 @@ export function useWorkflowState(ws: WebSocketClient | null): [WorkflowState, (s
     nodes: [],
     summary: null,
     error: '',
+    paused: false,
   });
 
   function update(partial: Partial<WorkflowState>) {
@@ -67,6 +69,14 @@ export function useWorkflowState(ws: WebSocketClient | null): [WorkflowState, (s
 
         case 'workflow:completed':
           setState(prev => ({ ...prev, summary: msg.summary }));
+          break;
+
+        case 'workflow:paused':
+          setState(prev => ({ ...prev, paused: true }));
+          break;
+
+        case 'workflow:resumed':
+          setState(prev => ({ ...prev, paused: false }));
           break;
 
         case 'error':
@@ -136,7 +146,18 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
     ws.send({ type: 'workflow:abort', runId });
   }
 
+  function handlePause() {
+    if (!ws || !runId) return;
+    ws.send({ type: 'workflow:pause', runId });
+  }
+
+  function handleResume() {
+    if (!ws || !runId) return;
+    ws.send({ type: 'workflow:resume', runId });
+  }
+
   const isRunning = runId && !summary;
+  const { paused } = workflowState;
 
   return (
     <div className="workflow-panel">
@@ -201,19 +222,37 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
       />
 
       <div className="workflow-panel-actions">
-        <button
-          className="workflow-panel-btn workflow-panel-btn--primary"
-          onClick={handleStart}
-          disabled={!workspacePath || !yaml.trim() || !!isRunning}
-        >
-          Start
-        </button>
+        {!isRunning && (
+          <button
+            className="workflow-panel-btn workflow-panel-btn--primary"
+            onClick={handleStart}
+            disabled={!workspacePath || !yaml.trim()}
+          >
+            Start
+          </button>
+        )}
+        {isRunning && !paused && (
+          <button
+            className="workflow-panel-btn workflow-panel-btn--warn"
+            onClick={handlePause}
+          >
+            Pause
+          </button>
+        )}
+        {isRunning && paused && (
+          <button
+            className="workflow-panel-btn workflow-panel-btn--primary"
+            onClick={handleResume}
+          >
+            Resume
+          </button>
+        )}
         {isRunning && (
           <button
             className="workflow-panel-btn workflow-panel-btn--danger"
             onClick={handleAbort}
           >
-            Abort
+            Stop
           </button>
         )}
       </div>

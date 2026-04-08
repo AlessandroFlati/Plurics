@@ -16,7 +16,9 @@ export type ServerMessage =
   | { type: 'error'; message: string }
   | { type: 'workflow:started'; runId: string; nodeCount: number; nodes: Array<{ name: string; state: string; scope: string | null }> }
   | { type: 'workflow:node-update'; runId: string; node: string; fromState: string; toState: string; event: string; terminalId?: string }
-  | { type: 'workflow:completed'; runId: string; summary: { total_nodes: number; completed: number; failed: number; skipped: number; duration_seconds: number } };
+  | { type: 'workflow:completed'; runId: string; summary: { total_nodes: number; completed: number; failed: number; skipped: number; duration_seconds: number } }
+  | { type: 'workflow:paused'; runId: string }
+  | { type: 'workflow:resumed'; runId: string };
 
 // --- Input Manifest ---
 
@@ -51,4 +53,6 @@ export type ClientMessage =
   | { type: 'terminal:list' }
   | { type: 'workflow:start'; yamlContent: string; workspacePath: string; inputManifest?: InputManifest }
   | { type: 'workflow:abort'; runId: string }
+  | { type: 'workflow:pause'; runId: string }
+  | { type: 'workflow:resume'; runId: string }
   | { type: 'workflow:status'; runId: string };

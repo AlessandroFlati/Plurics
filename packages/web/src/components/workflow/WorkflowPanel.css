@@ -83,6 +83,15 @@
   opacity: 0.9;
 }
 
+.workflow-panel-btn--warn {
+  border-color: #facc15;
+  color: #facc15;
+}
+
+.workflow-panel-btn--warn:hover {
+  background: rgba(250, 204, 21, 0.1);
+}
+
 .workflow-panel-btn--danger {
   border-color: var(--color-error);
   color: var(--color-error);
