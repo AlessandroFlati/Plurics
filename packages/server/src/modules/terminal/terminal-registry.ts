@@ -9,6 +9,7 @@ export class TerminalRegistry {
   private readonly purposes = new Map<string, string>();
   private readonly spawnCallbacks = new Set<SpawnCallback>();
   private readonly exitCallbacks = new Set<ExitCallback>();
+  private readonly perTerminalExitCallbacks = new Map<string, Array<() => void>>();
 
   async spawn(config: TerminalConfig): Promise<TerminalInfo> {
     const session = await TerminalSession.create(config);
@@ -17,10 +18,16 @@ export class TerminalRegistry {
       this.purposes.set(session.name, config.purpose);
     }
     session.onExit(() => {
-      this.sessions.delete(session.id);
+      const id = session.id;
+      this.sessions.delete(id);
       const name = session.name;
       this.purposes.delete(name);
       for (const cb of this.exitCallbacks) cb(name);
+      const perTerminal = this.perTerminalExitCallbacks.get(id);
+      if (perTerminal) {
+        for (const cb of perTerminal) cb();
+        this.perTerminalExitCallbacks.delete(id);
+      }
     });
     for (const cb of this.spawnCallbacks) cb(session.name, config.purpose ?? '');
     return session.info;
@@ -72,5 +79,12 @@ export class TerminalRegistry {
   onTerminalExit(callback: ExitCallback): () => void {
     this.exitCallbacks.add(callback);
     return () => this.exitCallbacks.delete(callback);
+  }
+
+  onTerminalExitById(terminalId: string, callback: () => void): void {
+    if (!this.perTerminalExitCallbacks.has(terminalId)) {
+      this.perTerminalExitCallbacks.set(terminalId, []);
+    }
+    this.perTerminalExitCallbacks.get(terminalId)!.push(callback);
   }
 }
