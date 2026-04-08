@@ -10,6 +10,7 @@ import { PresetRepository } from './db/preset-repository.js';
 import { WorkflowRepository } from './db/workflow-repository.js';
 import { AgentBootstrap } from './modules/knowledge/agent-bootstrap.js';
 import { KnowledgeWatcher } from './modules/knowledge/knowledge-watcher.js';
+import { seedPresetsFromFilesystem } from './modules/workflow/preset-resolver.js';
 
 const PORT = parseInt(process.env.PORT ?? '11001', 10);
 
@@ -136,6 +137,12 @@ app.delete('/api/agent-presets/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/agent-presets/seed', (_req, res) => {
+  const projectRoot = path.resolve(path.join(__dirname, '..', '..', '..'));
+  const imported = seedPresetsFromFilesystem(projectRoot, presetRepo);
+  res.json({ imported, total: presetRepo.list().length });
+});
+
 app.get('/api/workflows', (_req, res) => {
   res.json(workflowRepo.listRuns());
 });
@@ -146,7 +153,9 @@ app.get('/api/workflows/:id', (req, res) => {
   res.json({ ...run, events: workflowRepo.getEvents(req.params.id) });
 });
 
-createWebSocketServer(server, registry, bootstrap, presetRepo, workflowRepo);
+const projectRoot = path.resolve(path.join(__dirname, '..', '..', '..'));
+
+createWebSocketServer(server, registry, bootstrap, presetRepo, workflowRepo, projectRoot);
 
 registry.onTerminalExit(() => {
   bootstrap.regenerateAgentsList(registry.listWithPurpose());
@@ -159,6 +168,12 @@ registry.onSpawn(() => {
     watcher.start(cwd);
   }
 });
+
+// Auto-seed presets from filesystem on startup
+const seeded = seedPresetsFromFilesystem(projectRoot, presetRepo);
+if (seeded > 0) {
+  console.log(`Seeded ${seeded} preset(s) from workflows/presets/`);
+}
 
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);

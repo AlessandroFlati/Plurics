@@ -16,6 +16,7 @@ export function createWebSocketServer(
   bootstrap: AgentBootstrap,
   presetRepo: PresetRepository,
   workflowRepo: WorkflowRepository,
+  projectRoot: string,
 ): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -32,7 +33,7 @@ export function createWebSocketServer(
       }
 
       try {
-        await handleMessage(ws, msg, registry, cleanups, bootstrap, presetRepo, workflowRepo);
+        await handleMessage(ws, msg, registry, cleanups, bootstrap, presetRepo, workflowRepo, projectRoot);
       } catch (err) {
         sendMessage(ws, {
           type: 'error',
@@ -60,6 +61,7 @@ async function handleMessage(
   bootstrap: AgentBootstrap,
   presetRepo: PresetRepository,
   workflowRepo: WorkflowRepository,
+  projectRoot: string,
 ): Promise<void> {
   switch (msg.type) {
     case 'terminal:spawn': {
@@ -158,7 +160,7 @@ async function handleMessage(
 
     case 'workflow:start': {
       const config = parseWorkflow(msg.yamlContent);
-      const executor = new DagExecutor(config, msg.workspacePath, registry, bootstrap, presetRepo);
+      const executor = new DagExecutor(config, msg.workspacePath, projectRoot, registry, bootstrap, presetRepo);
 
       executor.setStateChangeHandler((runId, node, fromState, toState, event, terminalId) => {
         sendMessage(ws, { type: 'workflow:node-update', runId, node, fromState, toState, event, terminalId });

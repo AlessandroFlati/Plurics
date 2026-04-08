@@ -69,6 +69,9 @@ export interface WorkflowConfig {
     agent_timeout_seconds: number;
     base_significance?: number;
     max_parallel_hypotheses?: number;
+    hypotheses_per_batch?: number;
+    min_hypotheses_to_proceed?: number;
+    script_timeout_seconds?: number;
   };
   shared_context: string;
   nodes: Record<string, WorkflowNodeDef>;

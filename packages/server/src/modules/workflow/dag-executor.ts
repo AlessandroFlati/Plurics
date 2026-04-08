@@ -13,6 +13,7 @@ import { validateSignalOutputs } from './signal-validator.js';
 import { Registrar } from './registrar.js';
 import { generatePurpose } from './purpose-templates.js';
 import { randomHex, writeJsonAtomic } from './utils.js';
+import { resolvePresetContent, resolvePlaceholders } from './preset-resolver.js';
 import type { TerminalRegistry } from '../terminal/terminal-registry.js';
 import type { AgentBootstrap } from '../knowledge/agent-bootstrap.js';
 import type { PresetRepository } from '../../db/preset-repository.js';
@@ -38,6 +39,7 @@ export class DagExecutor {
   private readonly presetRepo: PresetRepository;
   private readonly registrar: Registrar;
   private readonly workspacePath: string;
+  private readonly projectRoot: string;
   private readonly workflowConfig: WorkflowConfig;
   readonly runId: string;
   private readonly eventLog: EventLogEntry[] = [];
@@ -49,12 +51,14 @@ export class DagExecutor {
   constructor(
     workflowConfig: WorkflowConfig,
     workspacePath: string,
+    projectRoot: string,
     registry: TerminalRegistry,
     bootstrap: AgentBootstrap,
     presetRepo: PresetRepository,
   ) {
     this.workflowConfig = workflowConfig;
     this.workspacePath = workspacePath;
+    this.projectRoot = projectRoot;
     this.registry = registry;
     this.bootstrap = bootstrap;
     this.presetRepo = presetRepo;
@@ -237,9 +241,16 @@ export class DagExecutor {
     const node = this.nodes.get(nodeName)!;
     this.transition(nodeName, 'spawn');
 
-    // Load preset content
-    const presetRecord = this.presetRepo.list().find(p => p.name === node.preset);
-    const presetContent = presetRecord?.purpose ?? `You are the ${node.preset} agent.`;
+    // Load and resolve preset content
+    const rawPreset = resolvePresetContent(node.preset, this.projectRoot, this.presetRepo);
+    const presetContent = resolvePlaceholders(rawPreset, {
+      ROUND: node.invocationCount + 1,
+      HYPOTHESIS_ID: node.scope ?? '',
+      HYPOTHESES_PER_BATCH: this.workflowConfig.config.hypotheses_per_batch ?? 8,
+      MIN_HYPOTHESES_TO_PROCEED: this.workflowConfig.config.min_hypotheses_to_proceed ?? 2,
+      MAX_ROUNDS: this.workflowConfig.config.max_hypothesis_rounds,
+      SCRIPT_TIMEOUT: this.workflowConfig.config.script_timeout_seconds ?? 120,
+    });
 
     // Get test budget if relevant
     let testBudgetInfo: { tests_executed: number; tests_remaining: number; significance_threshold_current: number } | undefined;
