@@ -2,10 +2,14 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type http from 'node:http';
 import type { ClientMessage, ServerMessage } from './protocol.js';
 import type { TerminalRegistry } from '../modules/terminal/terminal-registry.js';
+import type { AgentBootstrap } from '../modules/knowledge/agent-bootstrap.js';
+import type { PresetRepository } from '../db/preset-repository.js';
 
 export function createWebSocketServer(
   server: http.Server,
   registry: TerminalRegistry,
+  bootstrap: AgentBootstrap,
+  presetRepo: PresetRepository,
 ): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -22,7 +26,7 @@ export function createWebSocketServer(
       }
 
       try {
-        await handleMessage(ws, msg, registry, cleanups);
+        await handleMessage(ws, msg, registry, cleanups, bootstrap, presetRepo);
       } catch (err) {
         sendMessage(ws, {
           type: 'error',
@@ -47,20 +51,38 @@ async function handleMessage(
   msg: ClientMessage,
   registry: TerminalRegistry,
   cleanups: Array<() => void>,
+  bootstrap: AgentBootstrap,
+  presetRepo: PresetRepository,
 ): Promise<void> {
   switch (msg.type) {
     case 'terminal:spawn': {
+      if (msg.cwd) {
+        bootstrap.setCwd(msg.cwd);
+      }
       const info = await registry.spawn({
         name: msg.name,
         command: msg.command,
         cwd: msg.cwd,
+        purpose: msg.purpose,
       });
+      if (msg.purpose && msg.name) {
+        bootstrap.createAgentFiles(msg.name, msg.purpose);
+        bootstrap.regenerateAgentsList(registry.listWithPurpose());
+        const session = registry.get(info.id);
+        if (session) {
+          setTimeout(() => {
+            session.write(bootstrap.getInjectionPrompt(msg.name!));
+          }, 2000);
+        }
+      }
+      if (msg.presetId) {
+        presetRepo.incrementUseCount(msg.presetId);
+      }
       sendMessage(ws, {
         type: 'terminal:created',
         terminalId: info.id,
         name: info.name,
       });
-      // Client should send terminal:subscribe to start receiving output
       break;
     }
 
@@ -95,10 +117,6 @@ async function handleMessage(
         sendMessage(ws, { type: 'error', message: `Terminal not found: ${msg.terminalId}` });
         return;
       }
-      // For reconnecting to an existing session (command already running),
-      // force a redraw by toggling the terminal size. This sends SIGWINCH
-      // to the running program, causing it to redraw at the current dimensions.
-      // Skip for newly spawned terminals -- resize handler will launch the command.
       if (session.isCommandRunning) {
         const info = session.info;
         await session.resize(info.cols, info.rows + 1);
