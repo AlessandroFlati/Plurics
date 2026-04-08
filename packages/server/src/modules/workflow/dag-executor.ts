@@ -356,10 +356,23 @@ export class DagExecutor {
     this.bootstrap.createAgentFiles(agentName, purpose);
     this.bootstrap.regenerateAgentsList(this.registry.listWithPurpose());
 
+    // Build command with model and effort flags from node definition
+    const nodeDef = this.workflowConfig.nodes[node.name] ?? this.workflowConfig.nodes[nodeName];
+    const modelMap: Record<string, string> = {
+      opus: 'claude-opus-4-6',
+      sonnet: 'claude-sonnet-4-6',
+      haiku: 'claude-haiku-4-5-20251001',
+    };
+    let command = 'claude --dangerously-skip-permissions';
+    if (nodeDef?.model && modelMap[nodeDef.model]) {
+      command += ` --model ${modelMap[nodeDef.model]}`;
+    }
+
     const info = await this.registry.spawn({
       name: agentName,
       cwd: this.workspacePath,
       purpose,
+      command,
     });
 
     // Trigger deferred command by sending initial resize
@@ -373,7 +386,17 @@ export class DagExecutor {
 
       // Inject purpose prompt after Claude Code has time to start
       setTimeout(() => {
-        session.write(this.bootstrap.getInjectionPrompt(agentName));
+        // Set effort level if specified
+        const effort = nodeDef?.effort ?? 'low';
+        if (effort === 'low') {
+          session.write('/compact\r');
+          // Wait a beat for the command to register
+          setTimeout(() => {
+            session.write(this.bootstrap.getInjectionPrompt(agentName));
+          }, 500);
+        } else {
+          session.write(this.bootstrap.getInjectionPrompt(agentName));
+        }
       }, 5000);
     }
 

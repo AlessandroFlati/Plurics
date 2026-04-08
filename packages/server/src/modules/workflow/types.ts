@@ -87,6 +87,8 @@ export interface WorkflowNodeDef {
   next?: string;
   max_retries?: number;
   timeout_seconds?: number;
+  model?: 'opus' | 'sonnet' | 'haiku';
+  effort?: 'low' | 'medium' | 'high';
 }
 
 // --- State Transitions ---

@@ -42,27 +42,38 @@ nodes:
   ingestor:
     preset: research/ingestor
     depends_on: []
-    timeout_seconds: 180
+    timeout_seconds: 600
+    model: sonnet
+    effort: low
 
   profiler:
     preset: research/profiler
     depends_on: [ingestor]
-    timeout_seconds: 300
+    timeout_seconds: 600
+    model: sonnet
+    effort: low
 
   hypothesist:
     preset: research/hypothesist
     depends_on: [profiler]
     max_invocations: 3
-    timeout_seconds: 300
+    timeout_seconds: 600
+    model: opus
+    effort: low
 
   adversary:
     preset: research/adversary
     depends_on: [hypothesist]
-    timeout_seconds: 300
+    timeout_seconds: 600
+    model: opus
+    effort: low
 
   judge:
     preset: research/judge
     depends_on: [adversary]
+    timeout_seconds: 600
+    model: opus
+    effort: low
     branch:
       - condition: "approved >= min"
         goto: architect
@@ -73,17 +84,23 @@ nodes:
   architect:
     preset: research/architect
     depends_on: [judge]
-    timeout_seconds: 240
+    timeout_seconds: 600
+    model: opus
+    effort: low
 
   coder:
     preset: research/coder
     depends_on: [architect]
-    timeout_seconds: 240
+    timeout_seconds: 600
+    model: sonnet
+    effort: low
 
   auditor:
     preset: research/auditor
     depends_on: [coder]
     max_invocations: 5
+    model: opus
+    effort: low
     branch:
       - condition: "clean"
         goto: executor
@@ -94,17 +111,23 @@ nodes:
     preset: research/fixer
     depends_on: [auditor]
     next: auditor
-    timeout_seconds: 240
+    timeout_seconds: 600
+    model: sonnet
+    effort: low
 
   executor:
     preset: research/executor
     depends_on: [auditor]
-    timeout_seconds: 240
+    timeout_seconds: 600
+    model: sonnet
+    effort: low
 
   falsifier:
     preset: research/falsifier
     depends_on: [executor]
-    timeout_seconds: 360
+    timeout_seconds: 600
+    model: opus
+    effort: low
     branch:
       - condition: "survived"
         goto: generalizer
@@ -114,7 +137,9 @@ nodes:
   generalizer:
     preset: research/generalizer
     depends_on: [falsifier]
-    timeout_seconds: 360
+    timeout_seconds: 600
+    model: opus
+    effort: low
 
   meta_analyst:
     preset: research/meta-analyst
