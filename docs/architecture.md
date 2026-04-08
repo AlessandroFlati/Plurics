@@ -349,4 +349,87 @@ Browser (localhost:11000)
 |---|---|---|
 | Phase 1: Terminal Grid | Complete | PTY management, split panes, workspace persistence |
 | Phase 2: Agent Communication | Complete | Spawn modal, purpose editor, presets, FileWatcher inbox injection, agents.md registry |
-| Phase 3: Workflow Orchestration | Planned | YAML workflow parser, DAG executor, visual node editor |
+| Phase 3: Workflow Orchestration | Complete | Signal protocol, DAG executor, YAML parser, registrar, WorkflowPanel |
+| Research Swarm Schemas | Complete | Hypothesis DSL, TestPlan, DataManifest, hypothesis validator |
+
+---
+
+## Workflow Orchestration (Phase 3)
+
+### Signal Protocol
+
+Agents report task completion by writing JSON signal files to `.caam/shared/signals/`. The signal file is the sole mechanism by which the DAG executor learns that an agent has finished. Signals use atomic write (`.tmp` + rename) and include SHA-256 checksums for output integrity verification.
+
+Signal statuses: `success`, `failure`, `branch` (with goto decision), `budget_exhausted`.
+
+### DAG Executor
+
+The `DagExecutor` manages a directed acyclic graph of agent nodes with a state machine:
+
+```
+pending -> ready -> spawning -> running -> validating -> completed
+                                  |            |
+                                  v            v
+                               retrying     retrying -> failed
+```
+
+Features: timeout handling, retry with exponential context, crash detection (per-terminal exit listeners), branch decisions with scoped sub-DAG fan-out, budget exhaustion propagation.
+
+### Registrar
+
+Server-side module that maintains a test registry and applies Benjamini-Hochberg FDR correction after each test execution. Tracks test budget and adjusts significance thresholds.
+
+### Workflow YAML
+
+Declarative schema for multi-agent pipelines with `depends_on`, `branch`, `max_invocations` (loop control), per-node timeout/retry overrides, and cycle detection via Kahn's algorithm.
+
+### Workflow Files
+
+```
+packages/server/src/modules/workflow/
+  types.ts                  # Signal, DagNode, WorkflowConfig, NodeState
+  utils.ts                  # Atomic JSON write, SHA-256, sleep
+  signal-validator.ts       # Schema validation + output integrity
+  signal-watcher.ts         # chokidar on *.done.json
+  yaml-parser.ts            # YAML parse + validate + cycle detection
+  dag-executor.ts           # Core DAG state machine
+  registrar.ts              # BH FDR correction + budget
+  purpose-templates.ts      # Generate purpose.md with signal protocol
+  hypothesis-types.ts       # Hypothesis DSL type definitions
+  manifest-types.ts         # Profiler data manifest types
+  test-plan-types.ts        # Architect test plan types
+  hypothesis-validator.ts   # DSL validation rules
+```
+
+---
+
+## Research Swarm Schemas
+
+### Hypothesis DSL
+
+Central artifact flowing through the agent pipeline: Hypothesist -> Adversary -> Judge -> Architect -> Coder -> Falsifier -> Generalizer.
+
+Six hypothesis types: `association`, `difference`, `distribution`, `causal`, `temporal`, `structural`. Each has a type-specific payload with structured fields for machine execution.
+
+Lifecycle annotations accumulate as the hypothesis flows through agents: `adversary_review`, `judge_verdict`, `test_result`, `falsification_result`, `generalization`.
+
+Joint acceptance gate: both statistical significance (after BH correction) AND practical significance (effect size threshold) must pass.
+
+### TestPlan (Architect Output)
+
+Four modes: `correlation`, `causal`, `distributional`, `structural`. Each with mode-specific plan (test selection, identification strategy, robustness checks) plus common preprocessing steps, assumption checks, and sample size analysis.
+
+The Architect chooses mode and test based on hypothesis type and data manifest column types (decision matrix in spec).
+
+### DataManifest (Profiler Output)
+
+Comprehensive dataset profile: metadata (shape, time series detection, natural experiments), per-column profiles (semantic types, stats, distribution, anomalies), cross-column analysis (correlations, collinearity), data quality report, and analysis leads for the Hypothesist.
+
+### Schema File Locations
+
+| Schema | Written by | File location |
+|---|---|---|
+| DataManifest | Profiler | `.caam/shared/profiling-report.json` |
+| Hypothesis | Hypothesist | `.caam/shared/hypotheses/H-{NNN}.json` |
+| TestPlan | Architect | `.caam/shared/test-plans/H-{NNN}-plan.json` |
+| TestResult | Executor | `.caam/shared/results/H-{NNN}-result.json` |
