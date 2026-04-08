@@ -39,6 +39,15 @@ function migrate(db: Database.Database): void {
       purpose TEXT,
       sort_order INTEGER DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS agent_presets (
+      id INTEGER PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      purpose TEXT NOT NULL,
+      use_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
