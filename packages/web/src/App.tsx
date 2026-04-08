@@ -137,6 +137,7 @@ export function App() {
     <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-ui)' }}>
       <TerminalManager
         terminals={terminals}
+        ws={wsRef.current}
         onSpawn={handleSpawn}
         onOpenSpawnModal={openSpawnModal}
         onKill={handleKill}

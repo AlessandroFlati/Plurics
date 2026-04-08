@@ -1,17 +1,20 @@
 import { useState } from 'react';
 import type { TerminalInfo } from '../../types';
+import type { WebSocketClient } from '../../services/websocket-client';
 import './TerminalManager.css';
 import { WorkspaceSelector } from './WorkspaceSelector';
+import { WorkflowPanel } from '../workflow/WorkflowPanel';
 
 interface TerminalManagerProps {
   terminals: TerminalInfo[];
+  ws: WebSocketClient | null;
   onSpawn: (name: string, cwd: string) => void;
   onOpenSpawnModal: () => void;
   onKill: (id: string) => void;
   onPresetSelect: (label: string, cols: number, rows: number) => void;
 }
 
-export function TerminalManager({ terminals, onSpawn, onOpenSpawnModal, onKill, onPresetSelect: _onPresetSelect }: TerminalManagerProps) {
+export function TerminalManager({ terminals, ws, onSpawn, onOpenSpawnModal, onKill, onPresetSelect: _onPresetSelect }: TerminalManagerProps) {
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
 
   return (
@@ -57,6 +60,10 @@ export function TerminalManager({ terminals, onSpawn, onOpenSpawnModal, onKill, 
           <li className="terminal-manager-empty">No terminals running</li>
         )}
       </ul>
+
+      <div className="terminal-manager-divider" />
+
+      <WorkflowPanel ws={ws} workspacePath={activeCwd} />
     </div>
   );
 }
