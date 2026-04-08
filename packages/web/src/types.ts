@@ -27,12 +27,9 @@ export interface InputManifest {
   description: string | null;
 }
 
-export type DataSource =
-  | { type: 'local_file'; path: string; format: string; sheet: string | null; encoding: string | null; delimiter: string | null }
-  | { type: 'url'; url: string; format: string; headers: Record<string, string> }
-  | { type: 'sqlite'; path: string; query: string }
-  | { type: 'postgres'; connection_string: string; query: string }
-  | { type: 'inline'; data: Record<string, unknown>[] };
+// DataSource is a pass-through to the server. The UI creates local_file sources;
+// other types can be added via raw JSON or future UI extensions.
+export type DataSource = Record<string, unknown> & { type: string };
 
 export interface ScopeConstraint {
   include_columns: string[] | null;

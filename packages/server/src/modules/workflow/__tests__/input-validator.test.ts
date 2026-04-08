@@ -107,4 +107,77 @@ describe('validateInputManifest', () => {
     }), tmpDir);
     expect(errors).toHaveLength(0);
   });
+
+  // New source type tests
+
+  it('fails for mysql with wrong prefix', () => {
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 'mysql', connection_string: 'postgres://x', query: null, discovery: null }],
+    }), tmpDir);
+    expect(errors.some(e => e.message.includes('mysql://'))).toBe(true);
+  });
+
+  it('fails for mongo without database', () => {
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 'mongo', connection_string: 'mongodb://localhost', database: '', collection: null, pipeline: null, discovery: null }],
+    }), tmpDir);
+    expect(errors.some(e => e.message.includes('database'))).toBe(true);
+  });
+
+  it('fails for bigquery without project', () => {
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 'bigquery', project: '', dataset: 'ds', credentials_path: null, query: null, discovery: null }],
+    }), tmpDir);
+    expect(errors.some(e => e.message.includes('project'))).toBe(true);
+  });
+
+  it('fails for s3 without bucket', () => {
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 's3', bucket: '', prefix: '', format: 'auto', region: null, endpoint: null, access_key: null, secret_key: null, merge_strategy: 'concatenate' }],
+    }), tmpDir);
+    expect(errors.some(e => e.message.includes('bucket'))).toBe(true);
+  });
+
+  it('fails for rest_api without endpoints', () => {
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 'rest_api', base_url: 'https://api.example.com', endpoints: [], auth: null }],
+    }), tmpDir);
+    expect(errors.some(e => e.message.includes('endpoint'))).toBe(true);
+  });
+
+  it('fails for google_sheets without spreadsheet_id', () => {
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 'google_sheets', spreadsheet_id: '', sheet_name: null, range: null, credentials_path: null, has_header_row: true }],
+    }), tmpDir);
+    expect(errors.some(e => e.message.includes('spreadsheet_id'))).toBe(true);
+  });
+
+  it('fails for glob without pattern', () => {
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 'glob', pattern: '', format: 'auto', merge_strategy: 'concatenate' }],
+    }), tmpDir);
+    expect(errors.some(e => e.message.includes('pattern'))).toBe(true);
+  });
+
+  it('fails when query and discovery both set', () => {
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 'postgres', connection_string: 'postgres://x', query: 'SELECT 1', discovery: { include_tables: null, exclude_tables: null, sample_rows_per_table: 5, max_tables: 50 } }],
+    }), tmpDir);
+    expect(errors.some(e => e.message.includes('query OR discovery'))).toBe(true);
+  });
+
+  it('passes for postgres with discovery only', () => {
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 'postgres', connection_string: 'postgres://user:pass@host/db', query: null, discovery: { include_tables: null, exclude_tables: null, sample_rows_per_table: 5, max_tables: 50 } }],
+    }), tmpDir);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('passes for sqlite with query only (null discovery)', () => {
+    fs.writeFileSync(path.join(tmpDir, 'test.db'), '');
+    const errors = validateInputManifest(makeManifest({
+      sources: [{ type: 'sqlite', path: 'test.db', query: 'SELECT * FROM t', discovery: null }],
+    }), tmpDir);
+    expect(errors).toHaveLength(0);
+  });
 });
