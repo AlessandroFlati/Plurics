@@ -48,6 +48,32 @@ function migrate(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY,
+      workflow_name TEXT NOT NULL,
+      workspace_path TEXT NOT NULL,
+      yaml_content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      node_count INTEGER NOT NULL,
+      nodes_completed INTEGER NOT NULL DEFAULT 0,
+      nodes_failed INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL REFERENCES workflow_runs(id),
+      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+      node_name TEXT NOT NULL,
+      from_state TEXT NOT NULL,
+      to_state TEXT NOT NULL,
+      event TEXT NOT NULL,
+      details TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_events_run ON workflow_events(run_id);
   `);
 }
 

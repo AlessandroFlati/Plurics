@@ -1,0 +1,85 @@
+import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
+import type { SignalFile, ValidationResult } from './types.js';
+import { computeSha256, fileExists } from './utils.js';
+
+export function validateSignalSchema(signal: unknown): signal is SignalFile {
+  if (typeof signal !== 'object' || signal === null) return false;
+  const s = signal as Record<string, unknown>;
+
+  if (s.schema_version !== 1) return false;
+  if (typeof s.signal_id !== 'string') return false;
+  if (typeof s.agent !== 'string') return false;
+  if (s.scope !== null && typeof s.scope !== 'string') return false;
+  if (!['success', 'failure', 'branch', 'budget_exhausted'].includes(s.status as string)) return false;
+
+  if (s.decision !== null) {
+    if (typeof s.decision !== 'object') return false;
+    const d = s.decision as Record<string, unknown>;
+    if (typeof d.goto !== 'string') return false;
+    if (typeof d.reason !== 'string') return false;
+  }
+
+  if (!Array.isArray(s.outputs)) return false;
+  for (const o of s.outputs as unknown[]) {
+    if (typeof o !== 'object' || o === null) return false;
+    const out = o as Record<string, unknown>;
+    if (typeof out.path !== 'string') return false;
+    if (typeof out.sha256 !== 'string') return false;
+    if (typeof out.size_bytes !== 'number') return false;
+  }
+
+  if (typeof s.metrics !== 'object' || s.metrics === null) return false;
+  const m = s.metrics as Record<string, unknown>;
+  if (typeof m.duration_seconds !== 'number') return false;
+  if (typeof m.retries_used !== 'number') return false;
+
+  if (s.error !== null) {
+    if (typeof s.error !== 'object') return false;
+    const e = s.error as Record<string, unknown>;
+    if (typeof e.category !== 'string') return false;
+    if (typeof e.message !== 'string') return false;
+    if (typeof e.recoverable !== 'boolean') return false;
+  }
+
+  return true;
+}
+
+export async function validateSignalOutputs(
+  workspacePath: string,
+  signal: SignalFile,
+): Promise<ValidationResult> {
+  const errors: ValidationResult['errors'] = [];
+
+  for (const output of signal.outputs) {
+    const fullPath = path.join(workspacePath, '.caam', output.path);
+
+    if (!await fileExists(fullPath)) {
+      errors.push({ path: output.path, issue: 'missing', expected: 'exists', actual: null });
+      continue;
+    }
+
+    const stat = await fs.stat(fullPath);
+    if (stat.size !== output.size_bytes) {
+      errors.push({ path: output.path, issue: 'size_mismatch', expected: output.size_bytes, actual: stat.size });
+      continue;
+    }
+
+    const hash = await computeSha256(fullPath);
+    if (hash !== output.sha256) {
+      errors.push({ path: output.path, issue: 'sha256_mismatch', expected: output.sha256, actual: hash });
+      continue;
+    }
+
+    if (output.path.endsWith('.json')) {
+      try {
+        const content = await fs.readFile(fullPath, 'utf-8');
+        JSON.parse(content);
+      } catch {
+        errors.push({ path: output.path, issue: 'json_parse_failed', expected: 'valid JSON', actual: 'parse error' });
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
