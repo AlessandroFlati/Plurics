@@ -87,15 +87,7 @@ export class DagExecutor {
     this.startedAt = Date.now();
     this.bootstrap.setCwd(this.workspacePath);
 
-    await this.initializeSharedDirectory();
-
-    // Write input manifest if provided
-    if (inputManifest) {
-      await writeJsonAtomic(
-        path.join(this.workspacePath, '.caam', 'shared', 'input-manifest.json'),
-        inputManifest,
-      );
-    }
+    await this.initializeRunDirectory(inputManifest);
 
     // Load plugin if specified in workflow YAML
     if (this.workflowConfig.plugin) {
@@ -156,19 +148,55 @@ export class DagExecutor {
     return this.paused;
   }
 
-  private async initializeSharedDirectory(): Promise<void> {
-    // Create only platform-level directories. Domain-specific dirs are created by the plugin.
-    const dirs = [
-      '.caam/shared/signals',
-    ];
-    for (const dir of dirs) {
-      await fs.mkdir(path.join(this.workspacePath, dir), { recursive: true });
+  private async initializeRunDirectory(inputManifest: import('./input-types.js').InputManifest | null | undefined): Promise<void> {
+    // Create run-isolated directory
+    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    for (const dir of ['purposes', 'logs', 'signals']) {
+      await fs.mkdir(path.join(runDir, dir), { recursive: true });
     }
 
-    if (this.workflowConfig.shared_context) {
-      const contextPath = path.join(this.workspacePath, '.caam', 'shared', 'context.md');
-      await fs.writeFile(contextPath, this.workflowConfig.shared_context, 'utf-8');
+    // Shared data directory (persists across runs)
+    const dataDir = path.join(this.workspacePath, '.caam', 'data');
+    await fs.mkdir(dataDir, { recursive: true });
+
+    // Point .caam/shared symlink to this run
+    const sharedLink = path.join(this.workspacePath, '.caam', 'shared');
+    try { await fs.unlink(sharedLink); } catch { /* may not exist */ }
+    try {
+      await fs.symlink(runDir, sharedLink, 'junction');
+    } catch {
+      // Symlinks may fail on Windows without admin. Fall back to using runDir directly.
+      // Create shared as a real directory mirroring runDir
+      await fs.mkdir(sharedLink, { recursive: true });
+      for (const dir of ['purposes', 'logs', 'signals']) {
+        await fs.mkdir(path.join(sharedLink, dir), { recursive: true });
+      }
     }
+
+    // Create signals dir in shared (agents write here)
+    await fs.mkdir(path.join(sharedLink, 'signals'), { recursive: true });
+
+    // Save input manifest
+    if (inputManifest) {
+      await writeJsonAtomic(path.join(runDir, 'input-manifest.json'), inputManifest);
+    }
+
+    // Write shared context
+    if (this.workflowConfig.shared_context) {
+      await fs.writeFile(path.join(sharedLink, 'context.md'), this.workflowConfig.shared_context, 'utf-8');
+    }
+
+    // Write run metadata (initial)
+    await writeJsonAtomic(path.join(runDir, 'run-metadata.json'), {
+      run_id: this.runId,
+      workflow_name: this.workflowConfig.name,
+      started_at: new Date().toISOString(),
+      completed_at: null,
+      status: 'running',
+      config: this.workflowConfig.config,
+      summary: null,
+      artifacts: [],
+    });
   }
 
   private buildNodeGraph(): void {
@@ -312,6 +340,14 @@ export class DagExecutor {
 
     const agentName = node.scope ? `${node.name}-${node.scope}` : node.name;
 
+    // Persist purpose for audit trail
+    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    const purposeFilename = node.retryCount > 0
+      ? `${agentName}.retry-${node.retryCount}.md`
+      : `${agentName}.md`;
+    await fs.mkdir(path.join(runDir, 'purposes'), { recursive: true });
+    await fs.writeFile(path.join(runDir, 'purposes', purposeFilename), purpose, 'utf-8');
+
     // Create agent files (.caam/agents/<name>/purpose.md + inbox.md)
     this.bootstrap.setCwd(this.workspacePath);
     this.bootstrap.createAgentFiles(agentName, purpose);
@@ -330,6 +366,15 @@ export class DagExecutor {
         session.write(this.bootstrap.getInjectionPrompt(agentName));
       }, 2000);
     }
+
+    // Attach log capture for terminal output
+    const logDir = path.join(runDir, 'logs');
+    await fs.mkdir(logDir, { recursive: true });
+    const logPath = path.join(logDir, `${agentName}.log`);
+    const { createWriteStream } = await import('node:fs');
+    const logStream = createWriteStream(logPath, { flags: 'a' });
+    this.registry.onOutput(info.id, (data: string) => { logStream.write(data); });
+    this.registry.onTerminalExitById(info.id, () => { logStream.end(); });
 
     node.terminalId = info.id;
     node.startedAt = Date.now();
@@ -606,6 +651,17 @@ export class DagExecutor {
       skipped: summary.skipped,
       durationSeconds: summary.duration_seconds,
     });
+
+    // Update run metadata with final summary
+    try {
+      const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+      const metaPath = path.join(runDir, 'run-metadata.json');
+      const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
+      meta.completed_at = new Date().toISOString();
+      meta.status = summary.failed > 0 ? 'failed' : 'completed';
+      meta.summary = summary;
+      await writeJsonAtomic(metaPath, meta);
+    } catch { /* best effort */ }
 
     if (this.onComplete) {
       this.onComplete(this.runId, summary);

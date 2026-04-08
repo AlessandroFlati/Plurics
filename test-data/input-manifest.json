@@ -1,0 +1,16 @@
+{
+  "sources": [
+    { "type": "local_file", "path": "integers.parquet", "format": "parquet", "sheet": null, "encoding": null, "delimiter": null },
+    { "type": "local_file", "path": "prime_gaps.parquet", "format": "parquet", "sheet": null, "encoding": null, "delimiter": null },
+    { "type": "local_file", "path": "digit_distributions.parquet", "format": "parquet", "sheet": null, "encoding": null, "delimiter": null }
+  ],
+  "config_overrides": {
+    "max_hypothesis_rounds": 2,
+    "hypotheses_per_batch": 6,
+    "max_total_tests": 20,
+    "max_audit_rounds": 3,
+    "agent_timeout_seconds": 180
+  },
+  "scope": null,
+  "description": "Number theory dataset: integers 1-10000 with arithmetic properties, prime gaps, and digit distributions. Known ground truth for validation."
+}

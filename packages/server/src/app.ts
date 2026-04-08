@@ -175,6 +175,43 @@ app.get('/api/workflows/:id', (req, res) => {
   res.json({ ...run, events: workflowRepo.getEvents(req.params.id) });
 });
 
+app.get('/api/workflows/runs/:runId/log/:agent', (req, res) => {
+  // Find workspace path from workflow run
+  const run = workflowRepo.getRun(req.params.runId);
+  if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
+  const logPath = path.join(run.workspace_path, '.caam', 'runs', req.params.runId, 'logs', `${req.params.agent}.log`);
+  try {
+    const content = fs.readFileSync(logPath, 'utf-8');
+    res.type('text/plain').send(content);
+  } catch {
+    res.status(404).json({ error: 'Log not found' });
+  }
+});
+
+app.get('/api/workflows/runs/:runId/purpose/:agent', (req, res) => {
+  const run = workflowRepo.getRun(req.params.runId);
+  if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
+  const purposePath = path.join(run.workspace_path, '.caam', 'runs', req.params.runId, 'purposes', `${req.params.agent}.md`);
+  try {
+    const content = fs.readFileSync(purposePath, 'utf-8');
+    res.type('text/markdown').send(content);
+  } catch {
+    res.status(404).json({ error: 'Purpose not found' });
+  }
+});
+
+app.get('/api/workflows/runs/:runId/metadata', (req, res) => {
+  const run = workflowRepo.getRun(req.params.runId);
+  if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
+  const metaPath = path.join(run.workspace_path, '.caam', 'runs', req.params.runId, 'run-metadata.json');
+  try {
+    const content = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+    res.json(content);
+  } catch {
+    res.status(404).json({ error: 'Metadata not found' });
+  }
+});
+
 const projectRoot = path.resolve(path.join(__dirname, '..', '..', '..'));
 
 app.get('/api/workflow-files', (_req, res) => {

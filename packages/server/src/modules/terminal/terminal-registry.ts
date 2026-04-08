@@ -87,4 +87,26 @@ export class TerminalRegistry {
     }
     this.perTerminalExitCallbacks.get(terminalId)!.push(callback);
   }
+
+  private readonly outputListeners = new Map<string, Array<(data: string) => void>>();
+
+  onOutput(terminalId: string, callback: (data: string) => void): () => void {
+    if (!this.outputListeners.has(terminalId)) {
+      this.outputListeners.set(terminalId, []);
+    }
+    this.outputListeners.get(terminalId)!.push(callback);
+
+    // Attach to existing session if already spawned
+    const session = this.sessions.get(terminalId);
+    if (session) {
+      return session.onData(callback);
+    }
+    return () => {
+      const listeners = this.outputListeners.get(terminalId);
+      if (listeners) {
+        const idx = listeners.indexOf(callback);
+        if (idx >= 0) listeners.splice(idx, 1);
+      }
+    };
+  }
 }
