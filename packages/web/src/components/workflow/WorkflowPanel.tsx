@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { WebSocketClient } from '../../services/websocket-client';
-import type { ServerMessage } from '../../types';
+import type { ServerMessage, InputManifest, DataSource } from '../../types';
 import './WorkflowPanel.css';
 
 export interface WorkflowNode {
@@ -29,7 +29,7 @@ interface WorkflowPanelProps {
   ws: WebSocketClient | null;
   workspacePath: string | null;
   workflowState: WorkflowState;
-  onStateChange: (state: WorkflowState) => void;
+  onStateChange: (state: Partial<WorkflowState>) => void;
 }
 
 export function useWorkflowState(ws: WebSocketClient | null): [WorkflowState, (s: Partial<WorkflowState>) => void] {
@@ -78,8 +78,16 @@ export function useWorkflowState(ws: WebSocketClient | null): [WorkflowState, (s
   return [state, update];
 }
 
+interface WorkspaceFile {
+  name: string;
+  size: number;
+}
+
 export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange }: WorkflowPanelProps) {
   const [workflowFiles, setWorkflowFiles] = useState<string[]>([]);
+  const [sources, setSources] = useState<DataSource[]>([]);
+  const [description, setDescription] = useState('');
+  const [wsFiles, setWsFiles] = useState<WorkspaceFile[]>([]);
   const { yaml, runId, summary, error } = workflowState;
 
   useEffect(() => {
@@ -89,10 +97,47 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
       .catch(() => {});
   }, []);
 
+  // Load workspace files for source picker
+  useEffect(() => {
+    if (!workspacePath) return;
+    fetch(`/api/list-files?dir=${encodeURIComponent(workspacePath)}&extensions=csv,tsv,json,jsonl,parquet,xlsx,xls,db`)
+      .then(r => r.json())
+      .then((data: { files: WorkspaceFile[] }) => setWsFiles(data.files))
+      .catch(() => {});
+  }, [workspacePath]);
+
+  function addSource(fileName: string) {
+    setSources(prev => [...prev, {
+      type: 'local_file' as const,
+      path: fileName,
+      format: 'auto' as const,
+      sheet: null,
+      encoding: null,
+      delimiter: null,
+    }]);
+  }
+
+  function removeSource(index: number) {
+    setSources(prev => prev.filter((_, i) => i !== index));
+  }
+
   function handleStart() {
     if (!ws || !workspacePath || !yaml.trim()) return;
     onStateChange({ error: '', summary: null, nodes: [] });
-    ws.send({ type: 'workflow:start', yamlContent: yaml, workspacePath });
+
+    const inputManifest: InputManifest = {
+      sources,
+      config_overrides: {},
+      scope: null,
+      description: description || null,
+    };
+
+    ws.send({
+      type: 'workflow:start',
+      yamlContent: yaml,
+      workspacePath,
+      inputManifest: sources.length > 0 ? inputManifest : undefined,
+    });
   }
 
   function handleAbort() {
@@ -121,7 +166,7 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
           disabled={!!isRunning}
           defaultValue=""
         >
-          <option value="">Load workflow file...</option>
+          <option value="">Load workflow...</option>
           {workflowFiles.map(f => (
             <option key={f} value={f}>{f}</option>
           ))}
@@ -133,6 +178,38 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
         value={yaml}
         onChange={e => onStateChange({ yaml: e.target.value })}
         placeholder="Paste workflow YAML here..."
+        disabled={!!isRunning}
+      />
+
+      <div className="workflow-panel-section-label">Data Sources</div>
+
+      {sources.map((src, i) => (
+        <div key={i} className="workflow-panel-source">
+          <span className="workflow-panel-source-name">
+            {src.type === 'local_file' ? src.path : src.type}
+          </span>
+          <button className="workflow-panel-source-remove" onClick={() => removeSource(i)} disabled={!!isRunning}>x</button>
+        </div>
+      ))}
+
+      {wsFiles.length > 0 && !isRunning && (
+        <select
+          className="workflow-panel-select"
+          onChange={(e) => { if (e.target.value) addSource(e.target.value); e.target.value = ''; }}
+          defaultValue=""
+        >
+          <option value="">+ Add data file...</option>
+          {wsFiles.map(f => (
+            <option key={f.name} value={f.name}>{f.name} ({(f.size / 1024).toFixed(0)} KB)</option>
+          ))}
+        </select>
+      )}
+
+      <input
+        className="workflow-panel-input"
+        value={description}
+        onChange={e => setDescription(e.target.value)}
+        placeholder="Description (optional)"
         disabled={!!isRunning}
       />
 

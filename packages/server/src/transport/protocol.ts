@@ -6,7 +6,7 @@ export type ClientMessage =
   | { type: 'terminal:kill'; terminalId: string }
   | { type: 'terminal:subscribe'; terminalId: string }
   | { type: 'terminal:list' }
-  | { type: 'workflow:start'; yamlContent: string; workspacePath: string }
+  | { type: 'workflow:start'; yamlContent: string; workspacePath: string; inputManifest?: import('../modules/workflow/input-types.js').InputManifest }
   | { type: 'workflow:abort'; runId: string }
   | { type: 'workflow:status'; runId: string };
 

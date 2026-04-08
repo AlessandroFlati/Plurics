@@ -7,6 +7,7 @@ import type { PresetRepository } from '../db/preset-repository.js';
 import type { WorkflowRepository } from '../db/workflow-repository.js';
 import { DagExecutor } from '../modules/workflow/dag-executor.js';
 import { parseWorkflow } from '../modules/workflow/yaml-parser.js';
+import { validateInputManifest } from '../modules/workflow/input-validator.js';
 
 const activeExecutors = new Map<string, DagExecutor>();
 
@@ -159,7 +160,22 @@ async function handleMessage(
     }
 
     case 'workflow:start': {
+      // Validate input manifest if provided
+      if (msg.inputManifest) {
+        const manifestErrors = validateInputManifest(msg.inputManifest, msg.workspacePath);
+        if (manifestErrors.length > 0) {
+          sendMessage(ws, { type: 'error', message: `Input manifest errors: ${manifestErrors.map(e => e.message).join('; ')}` });
+          return;
+        }
+      }
+
       const config = parseWorkflow(msg.yamlContent);
+
+      // Merge config overrides from input manifest
+      if (msg.inputManifest?.config_overrides) {
+        config.config = { ...config.config, ...msg.inputManifest.config_overrides } as typeof config.config;
+      }
+
       const executor = new DagExecutor(config, msg.workspacePath, projectRoot, registry, bootstrap, presetRepo);
 
       executor.setStateChangeHandler((runId, node, fromState, toState, event, terminalId) => {
@@ -189,7 +205,7 @@ async function handleMessage(
       const initialNodes = Object.keys(config.nodes).map(name => ({ name, state: 'pending' as const, scope: null }));
       sendMessage(ws, { type: 'workflow:started', runId: executor.runId, nodeCount, nodes: initialNodes });
 
-      await executor.start();
+      await executor.start(msg.inputManifest ?? null);
       break;
     }
 

@@ -78,6 +78,28 @@ app.get('/api/list-dirs', (req, res) => {
   }
 });
 
+app.get('/api/list-files', (req, res) => {
+  const dir = req.query.dir as string;
+  const extensions = ((req.query.extensions as string) || '').split(',').filter(Boolean);
+  if (!dir) { res.json({ files: [] }); return; }
+  try {
+    const files = fs.readdirSync(dir)
+      .filter(f => {
+        if (extensions.length === 0) return true;
+        return extensions.some(ext => f.endsWith(`.${ext}`));
+      })
+      .map(f => {
+        const stat = fs.statSync(path.join(dir, f));
+        if (!stat.isFile()) return null;
+        return { name: f, size: stat.size, modified: stat.mtime.toISOString() };
+      })
+      .filter((f): f is NonNullable<typeof f> => f !== null && f.size > 0);
+    res.json({ files });
+  } catch {
+    res.json({ files: [] });
+  }
+});
+
 const workspaceRepo = new WorkspaceRepository(getDb());
 const presetRepo = new PresetRepository(getDb());
 const workflowRepo = new WorkflowRepository(getDb());

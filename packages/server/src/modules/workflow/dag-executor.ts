@@ -83,11 +83,19 @@ export class DagExecutor {
     return this.eventLog;
   }
 
-  async start(): Promise<void> {
+  async start(inputManifest?: import('./input-types.js').InputManifest | null): Promise<void> {
     this.startedAt = Date.now();
     this.bootstrap.setCwd(this.workspacePath);
 
     await this.initializeSharedDirectory();
+
+    // Write input manifest if provided
+    if (inputManifest) {
+      await writeJsonAtomic(
+        path.join(this.workspacePath, '.caam', 'shared', 'input-manifest.json'),
+        inputManifest,
+      );
+    }
     await this.registrar.initialize(
       this.workflowConfig.config.max_total_tests,
       this.workflowConfig.config.base_significance ?? 0.05,
