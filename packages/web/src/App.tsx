@@ -4,6 +4,8 @@ import { initTerminalStore, useTerminals } from './stores/terminal-store';
 import { SplitLayout } from './components/grid/SplitLayout';
 import { TerminalManager } from './components/sidebar/TerminalManager';
 import { SpawnModal } from './components/sidebar/SpawnModal';
+import { DagVisualization } from './components/workflow/DagVisualization';
+import { useWorkflowState } from './components/workflow/WorkflowPanel';
 import { type LayoutNode, createPreset, assignTerminals, splitLeaf, mergePane } from './components/grid/split-tree';
 
 const wsUrl = `ws://${window.location.hostname}:${window.location.port}/ws`;
@@ -15,6 +17,8 @@ export function App() {
   const [layout, setLayout] = useState<LayoutNode>({ type: 'leaf', terminalId: null });
   const [cwd, setCwd] = useState<string | null>(null);
   const [showSpawnModal, setShowSpawnModal] = useState(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const [wfState, updateWfState] = useWorkflowState(wsReady ? wsRef.current : null);
 
   useEffect(() => {
     const ws = new WebSocketClient(wsUrl);
@@ -136,25 +140,38 @@ export function App() {
     });
   }, [terminals]);
 
+  const showDag = wfState.nodes.length > 0;
+
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-ui)' }}>
       <TerminalManager
         terminals={terminals}
         ws={wsRef.current}
+        workflowState={wfState}
+        onWorkflowStateChange={updateWfState}
         onSpawn={handleSpawn}
         onOpenSpawnModal={openSpawnModal}
         onKill={handleKill}
         onPresetSelect={handlePresetSelect}
       />
-      <SplitLayout
-        layout={layout}
-        terminals={terminalMap}
-        ws={wsRef.current}
-        onSpawnInSlot={handleSpawnInSlot}
-        onSplitH={handleSplitH}
-        onSplitV={handleSplitV}
-        onMerge={handleMerge}
-      />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <SplitLayout
+            layout={layout}
+            terminals={terminalMap}
+            ws={wsRef.current}
+            onSpawnInSlot={handleSpawnInSlot}
+            onSplitH={handleSplitH}
+            onSplitV={handleSplitV}
+            onMerge={handleMerge}
+          />
+        </div>
+        {showDag && (
+          <div style={{ height: 220, flexShrink: 0, borderTop: '1px solid var(--color-border)', overflow: 'auto' }}>
+            <DagVisualization nodes={wfState.nodes} yamlContent={wfState.yaml} />
+          </div>
+        )}
+      </div>
       {showSpawnModal && (
         <SpawnModal
           onSpawn={handleModalSpawn}

@@ -3,18 +3,20 @@ import type { TerminalInfo } from '../../types';
 import type { WebSocketClient } from '../../services/websocket-client';
 import './TerminalManager.css';
 import { WorkspaceSelector } from './WorkspaceSelector';
-import { WorkflowPanel } from '../workflow/WorkflowPanel';
+import { WorkflowPanel, type WorkflowState } from '../workflow/WorkflowPanel';
 
 interface TerminalManagerProps {
   terminals: TerminalInfo[];
   ws: WebSocketClient | null;
+  workflowState: WorkflowState;
+  onWorkflowStateChange: (partial: Partial<WorkflowState>) => void;
   onSpawn: (name: string, cwd: string) => void;
   onOpenSpawnModal: () => void;
   onKill: (id: string) => void;
   onPresetSelect: (label: string, cols: number, rows: number) => void;
 }
 
-export function TerminalManager({ terminals, ws, onSpawn, onOpenSpawnModal, onKill, onPresetSelect: _onPresetSelect }: TerminalManagerProps) {
+export function TerminalManager({ terminals, ws, workflowState, onWorkflowStateChange, onSpawn, onOpenSpawnModal, onKill, onPresetSelect: _onPresetSelect }: TerminalManagerProps) {
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
 
   return (
@@ -63,7 +65,12 @@ export function TerminalManager({ terminals, ws, onSpawn, onOpenSpawnModal, onKi
 
       <div className="terminal-manager-divider" />
 
-      <WorkflowPanel ws={ws} workspacePath={activeCwd} />
+      <WorkflowPanel
+        ws={ws}
+        workspacePath={activeCwd}
+        workflowState={workflowState}
+        onStateChange={onWorkflowStateChange}
+      />
     </div>
   );
 }

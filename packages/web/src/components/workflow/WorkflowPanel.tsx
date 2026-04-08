@@ -1,16 +1,15 @@
 import { useState, useEffect } from 'react';
 import type { WebSocketClient } from '../../services/websocket-client';
 import type { ServerMessage } from '../../types';
-import { DagVisualization } from './DagVisualization';
 import './WorkflowPanel.css';
 
-interface WorkflowNode {
+export interface WorkflowNode {
   name: string;
   state: string;
   scope: string | null;
 }
 
-interface WorkflowSummary {
+export interface WorkflowSummary {
   total_nodes: number;
   completed: number;
   failed: number;
@@ -18,18 +17,70 @@ interface WorkflowSummary {
   duration_seconds: number;
 }
 
+export interface WorkflowState {
+  yaml: string;
+  runId: string | null;
+  nodes: WorkflowNode[];
+  summary: WorkflowSummary | null;
+  error: string;
+}
+
 interface WorkflowPanelProps {
   ws: WebSocketClient | null;
   workspacePath: string | null;
+  workflowState: WorkflowState;
+  onStateChange: (state: WorkflowState) => void;
 }
 
-export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
-  const [yaml, setYaml] = useState('');
-  const [runId, setRunId] = useState<string | null>(null);
-  const [nodes, setNodes] = useState<WorkflowNode[]>([]);
-  const [summary, setSummary] = useState<WorkflowSummary | null>(null);
-  const [error, setError] = useState('');
+export function useWorkflowState(ws: WebSocketClient | null): [WorkflowState, (s: Partial<WorkflowState>) => void] {
+  const [state, setState] = useState<WorkflowState>({
+    yaml: '',
+    runId: null,
+    nodes: [],
+    summary: null,
+    error: '',
+  });
+
+  function update(partial: Partial<WorkflowState>) {
+    setState(prev => ({ ...prev, ...partial }));
+  }
+
+  useEffect(() => {
+    if (!ws) return;
+
+    return ws.onMessage((msg: ServerMessage) => {
+      switch (msg.type) {
+        case 'workflow:started':
+          setState(prev => ({ ...prev, runId: msg.runId, nodes: msg.nodes, summary: null, error: '' }));
+          break;
+
+        case 'workflow:node-update':
+          setState(prev => {
+            const exists = prev.nodes.some(n => n.name === msg.node);
+            const nodes = exists
+              ? prev.nodes.map(n => n.name === msg.node ? { ...n, state: msg.toState } : n)
+              : [...prev.nodes, { name: msg.node, state: msg.toState, scope: null }];
+            return { ...prev, nodes };
+          });
+          break;
+
+        case 'workflow:completed':
+          setState(prev => ({ ...prev, summary: msg.summary }));
+          break;
+
+        case 'error':
+          setState(prev => ({ ...prev, error: msg.message }));
+          break;
+      }
+    });
+  }, [ws]);
+
+  return [state, update];
+}
+
+export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange }: WorkflowPanelProps) {
   const [workflowFiles, setWorkflowFiles] = useState<string[]>([]);
+  const { yaml, runId, summary, error } = workflowState;
 
   useEffect(() => {
     fetch('/api/workflow-files')
@@ -38,45 +89,9 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!ws) return;
-
-    return ws.onMessage((msg: ServerMessage) => {
-      switch (msg.type) {
-        case 'workflow:started':
-          setRunId(msg.runId);
-          setNodes(msg.nodes);
-          setSummary(null);
-          setError('');
-          break;
-
-        case 'workflow:node-update':
-          setNodes(prev => {
-            const exists = prev.some(n => n.name === msg.node);
-            if (exists) {
-              return prev.map(n => n.name === msg.node ? { ...n, state: msg.toState } : n);
-            }
-            // New node (from fan-out) — add it
-            return [...prev, { name: msg.node, state: msg.toState, scope: null }];
-          });
-          break;
-
-        case 'workflow:completed':
-          setSummary(msg.summary);
-          break;
-
-        case 'error':
-          setError(msg.message);
-          break;
-      }
-    });
-  }, [ws, runId]);
-
   function handleStart() {
     if (!ws || !workspacePath || !yaml.trim()) return;
-    setError('');
-    setSummary(null);
-    setNodes([]);
+    onStateChange({ error: '', summary: null, nodes: [] });
     ws.send({ type: 'workflow:start', yamlContent: yaml, workspacePath });
   }
 
@@ -100,7 +115,7 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
             try {
               const res = await fetch(`/api/workflow-files/${encodeURIComponent(file)}`);
               const data = await res.json();
-              if (data.content) setYaml(data.content);
+              if (data.content) onStateChange({ yaml: data.content });
             } catch { /* ignore */ }
           }}
           disabled={!!isRunning}
@@ -116,7 +131,7 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
       <textarea
         className="workflow-panel-textarea"
         value={yaml}
-        onChange={e => setYaml(e.target.value)}
+        onChange={e => onStateChange({ yaml: e.target.value })}
         placeholder="Paste workflow YAML here..."
         disabled={!!isRunning}
       />
@@ -127,7 +142,7 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
           onClick={handleStart}
           disabled={!workspacePath || !yaml.trim() || !!isRunning}
         >
-          Start Workflow
+          Start
         </button>
         {isRunning && (
           <button
@@ -140,17 +155,6 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
       </div>
 
       {error && <div className="workflow-panel-status" style={{ color: 'var(--color-error)' }}>{error}</div>}
-
-      {nodes.length > 0 && (
-        <>
-          <div className="workflow-panel-status">
-            <div className="workflow-panel-status-label">
-              {summary ? 'Completed' : 'Running'}{runId ? ` (${runId})` : ''}
-            </div>
-          </div>
-          <DagVisualization nodes={nodes} yamlContent={yaml} />
-        </>
-      )}
 
       {summary && (
         <div className="workflow-panel-summary">
