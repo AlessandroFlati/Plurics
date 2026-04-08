@@ -51,9 +51,14 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
           break;
 
         case 'workflow:node-update':
-          setNodes(prev => prev.map(n =>
-            n.name === msg.node ? { ...n, state: msg.toState } : n
-          ));
+          setNodes(prev => {
+            const exists = prev.some(n => n.name === msg.node);
+            if (exists) {
+              return prev.map(n => n.name === msg.node ? { ...n, state: msg.toState } : n);
+            }
+            // New node (from fan-out) — add it
+            return [...prev, { name: msg.node, state: msg.toState, scope: null }];
+          });
           break;
 
         case 'workflow:completed':

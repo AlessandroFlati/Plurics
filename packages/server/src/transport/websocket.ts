@@ -184,10 +184,12 @@ async function handleMessage(
         node_count: nodeCount,
       });
 
-      await executor.start();
+      // Send workflow:started BEFORE start() so the client has the node list
+      // before receiving node-update events
+      const initialNodes = Object.keys(config.nodes).map(name => ({ name, state: 'pending' as const, scope: null }));
+      sendMessage(ws, { type: 'workflow:started', runId: executor.runId, nodeCount, nodes: initialNodes });
 
-      const nodes = [...executor.getNodes().values()].map(n => ({ name: n.name, state: n.state, scope: n.scope }));
-      sendMessage(ws, { type: 'workflow:started', runId: executor.runId, nodeCount, nodes });
+      await executor.start();
       break;
     }
 
