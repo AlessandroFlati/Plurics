@@ -26,12 +26,12 @@ interface Edge {
   to: string;
 }
 
-const NODE_W = 120;
-const NODE_H = 50;
-const LAYER_GAP = 80;
-const NODE_GAP = 30;
-const PADDING = 40;
-const NODE_RX = 8;
+const NODE_W = 110;
+const NODE_H = 36;
+const LAYER_GAP = 50;
+const NODE_GAP = 12;
+const PADDING = 30;
+const NODE_RX = 6;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 3;
 
@@ -147,13 +147,14 @@ function computeLayout(nodes: DagNode[], edges: Edge[]): { layout: LayoutNode[];
   const maxLayer = Math.max(...layers.values(), 0);
   const maxNodesInLayer = Math.max(...[...layerGroups.values()].map(g => g.length), 1);
 
-  const totalWidth = maxNodesInLayer * (NODE_W + NODE_GAP) - NODE_GAP + PADDING * 2;
-  const totalHeight = (maxLayer + 1) * (NODE_H + LAYER_GAP) - LAYER_GAP + PADDING * 2;
+  // Horizontal layout: layers = columns (left to right), nodes in layer = rows (top to bottom)
+  const totalWidth = (maxLayer + 1) * (NODE_W + LAYER_GAP) - LAYER_GAP + PADDING * 2;
+  const totalHeight = maxNodesInLayer * (NODE_H + NODE_GAP) - NODE_GAP + PADDING * 2;
 
   const layout: LayoutNode[] = [];
   for (const [layer, names] of layerGroups) {
-    const layerWidth = names.length * (NODE_W + NODE_GAP) - NODE_GAP;
-    const offsetX = (totalWidth - layerWidth) / 2;
+    const layerHeight = names.length * (NODE_H + NODE_GAP) - NODE_GAP;
+    const offsetY = (totalHeight - layerHeight) / 2;
 
     for (let i = 0; i < names.length; i++) {
       const n = nodeMap.get(names[i]);
@@ -161,14 +162,14 @@ function computeLayout(nodes: DagNode[], edges: Edge[]): { layout: LayoutNode[];
         name: names[i],
         state: n?.state ?? 'pending',
         scope: n?.scope ?? null,
-        x: offsetX + i * (NODE_W + NODE_GAP),
-        y: PADDING + layer * (NODE_H + LAYER_GAP),
+        x: PADDING + layer * (NODE_W + LAYER_GAP),
+        y: offsetY + i * (NODE_H + NODE_GAP),
         layer,
       });
     }
   }
 
-  return { layout, width: Math.max(totalWidth, 300), height: Math.max(totalHeight, 200) };
+  return { layout, width: Math.max(totalWidth, 300), height: Math.max(totalHeight, 150) };
 }
 
 export function DagVisualization({ nodes, yamlContent }: DagVisualizationProps) {
@@ -267,18 +268,18 @@ export function DagVisualization({ nodes, yamlContent }: DagVisualizationProps) 
             const to = layoutMap.get(edge.to);
             if (!from || !to) return null;
 
-            const x1 = from.x + NODE_W / 2;
-            const y1 = from.y + NODE_H;
-            const x2 = to.x + NODE_W / 2;
-            const y2 = to.y;
+            const x1 = from.x + NODE_W;
+            const y1 = from.y + NODE_H / 2;
+            const x2 = to.x;
+            const y2 = to.y + NODE_H / 2;
 
             const isActive = activeStates.has(from.state) || activeStates.has(to.state);
-            const midY = (y1 + y2) / 2;
+            const midX = (x1 + x2) / 2;
 
             return (
               <path
                 key={`edge-${i}`}
-                d={`M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`}
+                d={`M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`}
                 className={`dag-viz-edge${isActive ? ' dag-viz-edge--active' : ''}`}
                 markerEnd={`url(#dag-arrow${isActive ? '-active' : ''})`}
               />
@@ -289,7 +290,7 @@ export function DagVisualization({ nodes, yamlContent }: DagVisualizationProps) 
           {layout.map(node => {
             const color = STATE_COLORS[node.state] ?? STATE_COLORS.pending;
             const isActive = activeStates.has(node.state);
-            const displayName = node.name.length > 14 ? node.name.slice(0, 13) + '...' : node.name;
+            const displayName = node.name.length > 12 ? node.name.slice(0, 11) + '..' : node.name;
 
             return (
               <g key={node.name}>
@@ -306,16 +307,9 @@ export function DagVisualization({ nodes, yamlContent }: DagVisualizationProps) 
                 <text
                   className="dag-viz-node-label"
                   x={node.x + NODE_W / 2}
-                  y={node.y + 22}
+                  y={node.y + NODE_H / 2 + 4}
                 >
                   {displayName}
-                </text>
-                <text
-                  className="dag-viz-node-state"
-                  x={node.x + NODE_W / 2}
-                  y={node.y + 38}
-                >
-                  {node.state}{node.scope ? ` (${node.scope})` : ''}
                 </text>
               </g>
             );
