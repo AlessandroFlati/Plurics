@@ -98,33 +98,36 @@ export function splitLeaf(
   };
 }
 
-export function mergePane(node: LayoutNode, keepTerminalId: string): LayoutNode {
+/** Remove the pane containing `removeTerminalId` and collapse the split. */
+export function mergePane(node: LayoutNode, removeTerminalId: string): LayoutNode {
   if (node.type === 'leaf') return node;
 
-  const leftHas = findLeaf(node.children[0], keepTerminalId);
-  const rightHas = findLeaf(node.children[1], keepTerminalId);
+  const leftHas = findLeaf(node.children[0], removeTerminalId);
+  const rightHas = findLeaf(node.children[1], removeTerminalId);
 
-  if (leftHas && !rightHas) {
-    if (node.children[0].type === 'leaf' && node.children[0].terminalId === keepTerminalId) {
-      return node.children[0];
-    }
-    return {
-      type: 'split',
-      direction: node.direction,
-      ratio: node.ratio,
-      children: [mergePane(node.children[0], keepTerminalId), node.children[1]],
-    };
+  // The terminal to remove is a direct child of this split -- collapse to sibling
+  if (leftHas && node.children[0].type === 'leaf' && node.children[0].terminalId === removeTerminalId) {
+    return node.children[1];
+  }
+  if (rightHas && node.children[1].type === 'leaf' && node.children[1].terminalId === removeTerminalId) {
+    return node.children[0];
   }
 
-  if (rightHas && !leftHas) {
-    if (node.children[1].type === 'leaf' && node.children[1].terminalId === keepTerminalId) {
-      return node.children[1];
-    }
+  // Recurse into the subtree that contains the terminal
+  if (leftHas) {
     return {
       type: 'split',
       direction: node.direction,
       ratio: node.ratio,
-      children: [node.children[0], mergePane(node.children[1], keepTerminalId)],
+      children: [mergePane(node.children[0], removeTerminalId), node.children[1]],
+    };
+  }
+  if (rightHas) {
+    return {
+      type: 'split',
+      direction: node.direction,
+      ratio: node.ratio,
+      children: [node.children[0], mergePane(node.children[1], removeTerminalId)],
     };
   }
 

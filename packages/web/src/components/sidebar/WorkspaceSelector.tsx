@@ -18,7 +18,7 @@ interface WorkspaceSelectorProps {
 
 export function WorkspaceSelector({ onSelect, onNewPath: _onNewPath, locked, onUnlock }: WorkspaceSelectorProps) {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState('C:\\Users\\aless\\PycharmProjects\\');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
@@ -62,7 +62,8 @@ export function WorkspaceSelector({ onSelect, onNewPath: _onNewPath, locked, onU
   }
 
   function selectDir(dir: string) {
-    const withSlash = dir.endsWith('/') ? dir : dir + '/';
+    const sep = dir.includes('\\') ? '\\' : '/';
+    const withSlash = dir.endsWith('/') || dir.endsWith('\\') ? dir : dir + sep;
     setInput(withSlash);
     setShowSuggestions(false);
     setSelectedIdx(-1);
@@ -70,7 +71,7 @@ export function WorkspaceSelector({ onSelect, onNewPath: _onNewPath, locked, onU
   }
 
   async function handleSet() {
-    const pathValue = input.trim().replace(/\/+$/, '');
+    const pathValue = input.trim().replace(/[/\\]+$/, '');
     if (!pathValue) { setError('Enter a path'); return; }
     setValidating(true);
     setError('');
@@ -138,7 +139,7 @@ export function WorkspaceSelector({ onSelect, onNewPath: _onNewPath, locked, onU
               onClick={() => handleSelectExisting(ws)}
               title={ws.path}
             >
-              {ws.label || ws.path.split('/').filter(Boolean).pop() || ws.path}
+              {ws.label || ws.path.split(/[/\\]/).filter(Boolean).pop() || ws.path}
             </button>
           ))}
         </div>
@@ -152,7 +153,7 @@ export function WorkspaceSelector({ onSelect, onNewPath: _onNewPath, locked, onU
             onChange={e => handleInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
-            placeholder="/path/to/project"
+            placeholder="C:\path\to\project"
             className={'workspace-selector-input' + (error ? ' workspace-selector-input--error' : '')}
             disabled={locked || validating}
           />
@@ -165,7 +166,7 @@ export function WorkspaceSelector({ onSelect, onNewPath: _onNewPath, locked, onU
                   onMouseDown={() => selectDir(dir)}
                   onMouseEnter={() => setSelectedIdx(i)}
                 >
-                  {dir.split('/').filter(Boolean).pop() ?? dir}/
+                  {dir.split(/[/\\]/).filter(Boolean).pop() ?? dir}{dir.includes('\\') ? '\\' : '/'}
                 </li>
               ))}
             </ul>

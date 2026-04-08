@@ -1,9 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { spawn, type ChildProcess } from 'node:child_process';
-import * as fs from 'node:fs';
+import * as pty from 'node-pty';
 import * as os from 'node:os';
-import * as path from 'node:path';
-import type { TmuxManager } from './tmux-manager.js';
 import {
   type TerminalInfo,
   type TerminalConfig,
@@ -11,7 +8,6 @@ import {
   DEFAULT_CWD,
   DEFAULT_COLS,
   DEFAULT_ROWS,
-  TMUX_PREFIX,
 } from './types.js';
 
 type DataCallback = (data: string) => void;
@@ -25,35 +21,32 @@ export class TerminalSession {
   private cols: number;
   private rows: number;
   private readonly createdAt: number;
-  private readonly tmux: TmuxManager;
   private readonly listeners: Set<DataCallback> = new Set();
   private readonly exitListeners: Set<ExitCallback> = new Set();
-  private pipeProcess: ChildProcess | null = null;
-  private pipePath: string | null = null;
-  private exitPoller: ReturnType<typeof setInterval> | null = null;
-  private pipeStarted = false;
+  private ptyProcess: pty.IPty | null = null;
+  private commandStarted = false;
   private readonly deferredCommand: string;
+  private readonly cwd: string;
 
   private constructor(
     id: string,
     name: string,
-    tmuxSession: string,
     cols: number,
     rows: number,
-    tmux: TmuxManager,
     deferredCommand: string,
+    cwd: string,
   ) {
     this.id = id;
     this.name = name;
-    this.tmuxSession = tmuxSession;
+    this.tmuxSession = `caam-${name}`;
     this.cols = cols;
     this.rows = rows;
     this.createdAt = Date.now();
-    this.tmux = tmux;
     this.deferredCommand = deferredCommand;
+    this.cwd = cwd;
   }
 
-  static async create(tmux: TmuxManager, config: TerminalConfig): Promise<TerminalSession> {
+  static async create(config: TerminalConfig): Promise<TerminalSession> {
     const id = uuidv4();
     const name = config.name ?? id;
     const cols = config.cols ?? DEFAULT_COLS;
@@ -61,27 +54,31 @@ export class TerminalSession {
     const command = config.command ?? DEFAULT_COMMAND;
     const cwd = config.cwd ?? DEFAULT_CWD;
 
-    // Create tmux with a waiting shell. The real command is deferred until
-    // the client sends its actual terminal dimensions (first resize).
-    // This ensures the TUI renders at the correct size from the start.
-    const tmuxSession = await tmux.createSession(name, 'bash', cols, rows, cwd);
-    const session = new TerminalSession(id, name, tmuxSession, cols, rows, tmux, command);
-    session.startExitPoller();
-    return session;
-  }
+    const session = new TerminalSession(id, name, cols, rows, command, cwd);
 
-  static async attach(tmux: TmuxManager, tmuxSessionName: string): Promise<TerminalSession> {
-    const exists = await tmux.hasSession(tmuxSessionName);
-    if (!exists) {
-      throw new Error(`tmux session not found: ${tmuxSessionName}`);
-    }
-    const id = uuidv4();
-    const name = tmuxSessionName.replace(TMUX_PREFIX, '');
-    const session = new TerminalSession(id, name, tmuxSessionName, DEFAULT_COLS, DEFAULT_ROWS, tmux, '');
-    // For attached sessions, pipe immediately (already running at whatever size)
-    await session.startPipeOutput();
-    session.pipeStarted = true;
-    session.startExitPoller();
+    const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
+    session.ptyProcess = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd,
+      env: process.env as Record<string, string>,
+    });
+
+    session.ptyProcess.onData((data: string) => {
+      for (const cb of session.listeners) {
+        cb(data);
+      }
+    });
+
+    session.ptyProcess.onExit(() => {
+      if (session.status === 'exited') return;
+      session.status = 'exited';
+      for (const cb of session.exitListeners) {
+        cb();
+      }
+    });
+
     return session;
   }
 
@@ -98,11 +95,13 @@ export class TerminalSession {
   }
 
   get isCommandRunning(): boolean {
-    return this.pipeStarted;
+    return this.commandStarted;
   }
 
   write(data: string): void {
-    this.tmux.sendKeys(this.tmuxSession, data);
+    if (this.ptyProcess) {
+      this.ptyProcess.write(data);
+    }
   }
 
   onData(callback: DataCallback): () => void {
@@ -118,109 +117,41 @@ export class TerminalSession {
   async resize(cols: number, rows: number): Promise<void> {
     this.cols = cols;
     this.rows = rows;
-    await this.tmux.resizePane(this.tmuxSession, cols, rows);
+    if (this.ptyProcess) {
+      this.ptyProcess.resize(cols, rows);
+    }
 
-    // On first resize: start pipe-pane, then launch the deferred command.
+    // On first resize: launch the deferred command.
     // This ensures the TUI app starts at the client's actual dimensions.
-    if (!this.pipeStarted) {
-      this.pipeStarted = true;
-      await this.startPipeOutput();
+    if (!this.commandStarted) {
+      this.commandStarted = true;
       if (this.deferredCommand) {
-        // Use exec to replace the waiting shell with the real command
-        await this.tmux.sendKeys(this.tmuxSession, `exec ${this.deferredCommand}\n`);
+        this.write(this.deferredCommand + '\r');
       }
     }
   }
 
   async getScrollback(): Promise<string> {
-    return this.tmux.capturePane(this.tmuxSession);
+    return '';
   }
 
   async getScreenContent(): Promise<string> {
-    return this.tmux.capturePaneWithEscapes(this.tmuxSession);
+    return '';
   }
 
   async destroy(): Promise<void> {
-    this.stopPipeOutput();
-    this.stopExitPoller();
+    const wasRunning = this.status === 'running';
     this.status = 'exited';
     this.listeners.clear();
-    try {
-      await this.tmux.killSession(this.tmuxSession);
-    } catch {
-      // Session may already be dead
+    if (this.ptyProcess) {
+      this.ptyProcess.kill();
+      this.ptyProcess = null;
     }
-  }
-
-  /**
-   * Use `tmux pipe-pane` to stream raw PTY output through a FIFO.
-   * This captures the actual escape sequences that xterm.js needs
-   * to render TUI apps correctly (unlike capture-pane which strips them).
-   */
-  private async startPipeOutput(): Promise<void> {
-    const tmpDir = os.tmpdir();
-    this.pipePath = path.join(tmpDir, `caam-pipe-${this.id}`);
-
-    await new Promise<void>((resolve, reject) => {
-      const mkfifo = spawn('mkfifo', [this.pipePath!]);
-      mkfifo.on('close', (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`mkfifo failed with code ${code}`));
-      });
-    });
-
-    await this.tmux.pipePaneToFile(this.tmuxSession, this.pipePath);
-
-    this.pipeProcess = spawn('cat', [this.pipePath], { stdio: ['ignore', 'pipe', 'ignore'] });
-
-    this.pipeProcess.stdout!.on('data', (chunk: Buffer) => {
-      const data = chunk.toString('utf-8');
-      for (const cb of this.listeners) {
-        cb(data);
+    if (wasRunning) {
+      for (const cb of this.exitListeners) {
+        cb();
       }
-    });
-
-    this.pipeProcess.on('close', () => {
-      // Pipe closed -- session likely ended
-    });
-  }
-
-  private stopPipeOutput(): void {
-    this.tmux.pipePaneStop(this.tmuxSession).catch(() => {});
-
-    if (this.pipeProcess) {
-      this.pipeProcess.kill();
-      this.pipeProcess = null;
     }
-
-    if (this.pipePath) {
-      try { fs.unlinkSync(this.pipePath); } catch { /* may already be gone */ }
-      this.pipePath = null;
-    }
-  }
-
-  private startExitPoller(): void {
-    this.exitPoller = setInterval(async () => {
-      try {
-        const exists = await this.tmux.hasSession(this.tmuxSession);
-        if (!exists) {
-          this.status = 'exited';
-          this.stopExitPoller();
-          this.stopPipeOutput();
-          for (const cb of this.exitListeners) {
-            cb();
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }, 2000);
-  }
-
-  private stopExitPoller(): void {
-    if (this.exitPoller) {
-      clearInterval(this.exitPoller);
-      this.exitPoller = null;
-    }
+    this.exitListeners.clear();
   }
 }

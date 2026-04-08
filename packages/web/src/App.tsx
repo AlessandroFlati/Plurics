@@ -37,10 +37,14 @@ export function App() {
     wsRef.current?.send({ type: 'terminal:spawn', name, cwd: spawnCwd });
   }
 
-  function handleSpawnInSlot(_leafPath: string) {
+  function spawnNewTerminal() {
     if (!cwd) return;
-    const name = `agent-${terminals.length + 1}`;
+    const name = `agent-${Date.now().toString(36)}`;
     wsRef.current?.send({ type: 'terminal:spawn', name, cwd });
+  }
+
+  function handleSpawnInSlot(_leafPath: string) {
+    spawnNewTerminal();
   }
 
   function handleKill(id: string) {
@@ -49,30 +53,63 @@ export function App() {
 
   function handleSplitH(terminalId: string) {
     setLayout(prev => splitLeaf(prev, terminalId, 'horizontal'));
+    // The new empty slot will be filled by the useEffect that assigns unassigned terminals
+    spawnNewTerminal();
   }
 
   function handleSplitV(terminalId: string) {
     setLayout(prev => splitLeaf(prev, terminalId, 'vertical'));
+    spawnNewTerminal();
   }
 
   function handleMerge(terminalId: string) {
+    // Kill the terminal process on the server
+    wsRef.current?.send({ type: 'terminal:kill', terminalId });
+    // Remove this pane from the layout immediately
     setLayout(prev => mergePane(prev, terminalId));
   }
 
-  // When a new terminal is created, assign it to the first empty slot
+  // Sync layout with terminal state: collapse exited panes, assign new terminals
   useEffect(() => {
+    const activeIds = new Set(terminals.map(t => t.id));
+
     setLayout(prev => {
+      let tree = prev;
+
+      // 1) Collapse panes whose terminal has exited (mergePane removes + collapses)
+      //    Then null out any remaining stale IDs (e.g. root leaf that can't be merged)
+      function findExited(node: LayoutNode): string[] {
+        if (node.type === 'leaf') {
+          return node.terminalId && !activeIds.has(node.terminalId) ? [node.terminalId] : [];
+        }
+        return [...findExited(node.children[0]), ...findExited(node.children[1])];
+      }
+      for (const id of findExited(tree)) {
+        tree = mergePane(tree, id);
+      }
+      function clearStale(node: LayoutNode): LayoutNode {
+        if (node.type === 'leaf') {
+          if (node.terminalId && !activeIds.has(node.terminalId)) {
+            return { type: 'leaf', terminalId: null };
+          }
+          return node;
+        }
+        return {
+          type: 'split', direction: node.direction, ratio: node.ratio,
+          children: [clearStale(node.children[0]), clearStale(node.children[1])],
+        };
+      }
+      tree = clearStale(tree);
+
+      // 2) Assign unassigned terminals to empty slots
       const assignedIds = new Set<string>();
       function collectAssigned(node: LayoutNode) {
         if (node.type === 'leaf' && node.terminalId) assignedIds.add(node.terminalId);
-        if (node.type === 'split') { node.children.forEach(collectAssigned); }
+        if (node.type === 'split') node.children.forEach(collectAssigned);
       }
-      collectAssigned(prev);
+      collectAssigned(tree);
 
       const unassigned = terminals.filter(t => !assignedIds.has(t.id));
-      if (unassigned.length === 0) return prev;
-
-      let tree = prev;
       for (const t of unassigned) {
         let placed = false;
         function placeInEmpty(node: LayoutNode): LayoutNode {
@@ -90,40 +127,9 @@ export function App() {
           return node;
         }
         tree = placeInEmpty(tree);
-        if (!placed) {
-          function findLastTerminalId(node: LayoutNode): string | null {
-            if (node.type === 'leaf') return node.terminalId;
-            return findLastTerminalId(node.children[1]) ?? findLastTerminalId(node.children[0]);
-          }
-          const lastId = findLastTerminalId(tree);
-          if (lastId) {
-            tree = splitLeaf(tree, lastId, 'horizontal');
-            placed = false;
-            tree = placeInEmpty(tree);
-          }
-        }
       }
-      return tree;
-    });
-  }, [terminals]);
 
-  // Remove exited terminals from layout
-  useEffect(() => {
-    const activeIds = new Set(terminals.map(t => t.id));
-    setLayout(prev => {
-      function clean(node: LayoutNode): LayoutNode {
-        if (node.type === 'leaf') {
-          if (node.terminalId && !activeIds.has(node.terminalId)) {
-            return { type: 'leaf', terminalId: null };
-          }
-          return node;
-        }
-        return {
-          type: 'split', direction: node.direction, ratio: node.ratio,
-          children: [clean(node.children[0]), clean(node.children[1])],
-        };
-      }
-      return clean(prev);
+      return tree;
     });
   }, [terminals]);
 

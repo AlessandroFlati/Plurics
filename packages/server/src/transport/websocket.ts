@@ -64,17 +64,6 @@ async function handleMessage(
       break;
     }
 
-    case 'terminal:attach': {
-      const info = await registry.attach(msg.tmuxSessionName);
-      sendMessage(ws, {
-        type: 'terminal:created',
-        terminalId: info.id,
-        name: info.name,
-      });
-      // Client should send terminal:subscribe to start receiving output
-      break;
-    }
-
     case 'terminal:input': {
       const session = registry.get(msg.terminalId);
       if (!session) {
@@ -96,17 +85,7 @@ async function handleMessage(
     }
 
     case 'terminal:kill': {
-      // Graceful shutdown: send Ctrl+C to interrupt, then /exit for Claude Code
-      // (which also works as a comment in bash), then exit for the shell.
-      // The exit poller detects the session ended and fires onExit.
-      const session = registry.get(msg.terminalId);
-      if (!session) {
-        sendMessage(ws, { type: 'error', message: `Terminal not found: ${msg.terminalId}` });
-        return;
-      }
-      session.write('\x03'); // Ctrl+C
-      setTimeout(() => session.write('\x03'), 200); // Ctrl+C again
-      setTimeout(() => session.write('exit\n'), 500); // exit the shell
+      await registry.kill(msg.terminalId);
       break;
     }
 

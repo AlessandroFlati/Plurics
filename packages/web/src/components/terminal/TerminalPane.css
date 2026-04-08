@@ -46,11 +46,6 @@
 }
 
 .terminal-pane-toolbar-wrapper {
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.terminal-pane-header:hover .terminal-pane-toolbar-wrapper {
   opacity: 1;
 }
 
