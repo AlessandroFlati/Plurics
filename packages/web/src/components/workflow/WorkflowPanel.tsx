@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { WebSocketClient } from '../../services/websocket-client';
 import type { ServerMessage } from '../../types';
+import { DagVisualization } from './DagVisualization';
 import './WorkflowPanel.css';
 
 interface WorkflowNode {
@@ -28,6 +29,14 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
   const [nodes, setNodes] = useState<WorkflowNode[]>([]);
   const [summary, setSummary] = useState<WorkflowSummary | null>(null);
   const [error, setError] = useState('');
+  const [workflowFiles, setWorkflowFiles] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch('/api/workflow-files')
+      .then(r => r.json())
+      .then(setWorkflowFiles)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!ws) return;
@@ -77,6 +86,28 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
     <div className="workflow-panel">
       <div className="workflow-panel-title">Workflow</div>
 
+      {workflowFiles.length > 0 && (
+        <select
+          className="workflow-panel-select"
+          onChange={async (e) => {
+            const file = e.target.value;
+            if (!file) return;
+            try {
+              const res = await fetch(`/api/workflow-files/${encodeURIComponent(file)}`);
+              const data = await res.json();
+              if (data.content) setYaml(data.content);
+            } catch { /* ignore */ }
+          }}
+          disabled={!!isRunning}
+          defaultValue=""
+        >
+          <option value="">Load workflow file...</option>
+          {workflowFiles.map(f => (
+            <option key={f} value={f}>{f}</option>
+          ))}
+        </select>
+      )}
+
       <textarea
         className="workflow-panel-textarea"
         value={yaml}
@@ -106,20 +137,14 @@ export function WorkflowPanel({ ws, workspacePath }: WorkflowPanelProps) {
       {error && <div className="workflow-panel-status" style={{ color: 'var(--color-error)' }}>{error}</div>}
 
       {nodes.length > 0 && (
-        <div className="workflow-panel-status">
-          <div className="workflow-panel-status-label">
-            {summary ? 'Completed' : 'Running'}{runId ? ` (${runId})` : ''}
+        <>
+          <div className="workflow-panel-status">
+            <div className="workflow-panel-status-label">
+              {summary ? 'Completed' : 'Running'}{runId ? ` (${runId})` : ''}
+            </div>
           </div>
-          <ul className="workflow-panel-nodes">
-            {nodes.map(n => (
-              <li key={n.name} className="workflow-panel-node">
-                <span className={`workflow-panel-node-dot workflow-panel-node-dot--${n.state}`} />
-                <span className="workflow-panel-node-name">{n.name}</span>
-                <span className="workflow-panel-node-state">{n.state}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+          <DagVisualization nodes={nodes} yamlContent={yaml} />
+        </>
       )}
 
       {summary && (

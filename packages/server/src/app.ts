@@ -155,6 +155,31 @@ app.get('/api/workflows/:id', (req, res) => {
 
 const projectRoot = path.resolve(path.join(__dirname, '..', '..', '..'));
 
+app.get('/api/workflow-files', (_req, res) => {
+  const workflowsDir = path.join(projectRoot, 'workflows');
+  try {
+    const files = fs.readdirSync(workflowsDir)
+      .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+    res.json(files);
+  } catch {
+    res.json([]);
+  }
+});
+
+app.get('/api/workflow-files/:name', (req, res) => {
+  const filePath = path.join(projectRoot, 'workflows', req.params.name);
+  if (!filePath.startsWith(path.join(projectRoot, 'workflows'))) {
+    res.status(400).json({ error: 'Invalid path' });
+    return;
+  }
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    res.json({ name: req.params.name, content });
+  } catch {
+    res.status(404).json({ error: 'File not found' });
+  }
+});
+
 createWebSocketServer(server, registry, bootstrap, presetRepo, workflowRepo, projectRoot);
 
 registry.onTerminalExit(() => {

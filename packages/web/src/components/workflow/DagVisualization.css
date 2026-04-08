@@ -1,0 +1,50 @@
+.dag-viz {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  background: var(--color-surface-2, rgba(255,255,255,0.03));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  min-height: 200px;
+}
+
+.dag-viz svg {
+  display: block;
+}
+
+.dag-viz-node-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  fill: var(--color-text-primary);
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
+}
+
+.dag-viz-node-state {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  fill: var(--color-text-muted);
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
+}
+
+.dag-viz-edge {
+  stroke: var(--color-border);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.dag-viz-edge--active {
+  stroke: var(--color-accent, #007acc);
+  stroke-width: 2;
+}
+
+.dag-viz-arrowhead {
+  fill: var(--color-border);
+}
+
+.dag-viz-arrowhead--active {
+  fill: var(--color-accent, #007acc);
+}

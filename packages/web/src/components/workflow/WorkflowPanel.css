@@ -13,6 +13,27 @@
   letter-spacing: 0.05em;
 }
 
+.workflow-panel-select {
+  background: var(--color-surface-2, rgba(255,255,255,0.05));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--color-text-primary);
+  font-family: var(--font-ui);
+  outline: none;
+  cursor: pointer;
+}
+
+.workflow-panel-select:focus {
+  border-color: var(--color-border-focus, #007acc);
+}
+
+.workflow-panel-select option {
+  background: var(--color-surface-1);
+  color: var(--color-text-primary);
+}
+
 .workflow-panel-textarea {
   background: var(--color-surface-2, rgba(255,255,255,0.05));
   border: 1px solid var(--color-border);
