@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAAM Phase 1 - Terminal Grid MVP Test Plan</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --secondary: #7d8590; --accent: #3b82f6;
+    --green: #22c55e; --red: #f85149; --yellow: #d4a017;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; max-width: 960px; margin: 0 auto; line-height: 1.6; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  .subtitle { color: var(--secondary); font-size: 14px; margin-bottom: 32px; }
+  h2 { font-size: 18px; margin: 32px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+  h2:hover { color: var(--accent); }
+  h2 .arrow { display: inline-block; transition: transform 0.2s; margin-right: 8px; font-size: 12px; }
+  h2.collapsed .arrow { transform: rotate(-90deg); }
+  h3 { font-size: 14px; color: var(--secondary); text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 10px; }
+  .section { margin-bottom: 16px; }
+  .section.collapsed .items { display: none; }
+  .item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; background: var(--surface); transition: background 0.15s; }
+  .item:hover { background: #1c2129; }
+  .item.checked { opacity: 0.5; }
+  .item.checked .label { text-decoration: line-through; }
+  .item.failed { border-color: var(--red); background: #1a0f0f; opacity: 1; }
+  .item input[type="checkbox"] { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--green); cursor: pointer; flex-shrink: 0; }
+  .label { font-size: 14px; font-weight: 600; }
+  .steps { margin-top: 6px; font-size: 13px; color: var(--secondary); }
+  .steps ol { margin: 4px 0 0 18px; }
+  .steps li { margin-bottom: 3px; }
+  .steps code { background: #21262d; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: var(--accent); }
+  .steps .expect { color: var(--green); font-style: italic; }
+  .fail-btn { font-size: 11px; color: var(--red); background: none; border: 1px solid var(--red); border-radius: 4px; padding: 2px 8px; cursor: pointer; flex-shrink: 0; margin-top: 2px; }
+  .fail-btn:hover { background: #2d1111; }
+  .progress-bar { position: sticky; top: 0; background: var(--bg); padding: 12px 0; z-index: 10; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .progress-track { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--green); border-radius: 4px; transition: width 0.3s; }
+  .progress-text { display: flex; justify-content: space-between; font-size: 12px; color: var(--secondary); margin-top: 6px; }
+  .stats { display: flex; gap: 16px; }
+  .stat-pass { color: var(--green); }
+  .stat-fail { color: var(--red); }
+  .stat-pending { color: var(--secondary); }
+  .env-box { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; }
+  .env-box code { color: var(--accent); font-family: monospace; }
+  .reset-btn { font-size: 12px; color: var(--secondary); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 12px; cursor: pointer; }
+  .reset-btn:hover { color: var(--red); border-color: var(--red); }
+  .fail-note { color: var(--red); font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>CAAM Phase 1 - Terminal Grid MVP Test Plan</h1>
+<p class="subtitle">Functional testing for the terminal proxy layer. Run <code>npm run dev</code> from the project root before starting.</p>
+<div class="progress-bar">
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="progress-text">
+    <div class="stats"><span class="stat-pass" id="passCount">0 passed</span><span class="stat-fail" id="failCount">0 failed</span><span class="stat-pending" id="pendingCount">0 pending</span></div>
+    <span id="progressPct">0%</span>
+    <button class="reset-btn" onclick="resetAll()">Reset all</button>
+  </div>
+</div>
+<div class="env-box">
+  <strong>Test Environment</strong><br>
+  Frontend: <code>http://localhost:11000</code> | Server: <code>http://localhost:11001</code><br>
+  Requires: <code>tmux</code> installed, WSL2 (or native Linux)
+</div>
+<div id="sections"></div>
+<script>
+const T = [
+{title:"1. Server Startup",groups:[{name:"Health & Discovery",items:[
+{id:"srv-1",label:"Server starts and listens on port 11001",steps:[
+"Run <code>npm run dev</code> from project root",
+"<span class='expect'>Expected: console prints 'Server listening on port 11001'</span>"
+]},
+{id:"srv-2",label:"Health check endpoint responds",steps:[
+"Open <code>http://localhost:11001/api/health</code> in browser or curl",
+"<span class='expect'>Expected: JSON response {\"status\":\"ok\"}</span>"
+]},
+{id:"srv-3",label:"Terminals API returns empty list initially",steps:[
+"Open <code>http://localhost:11001/api/terminals</code>",
+"<span class='expect'>Expected: empty JSON array []</span>"
+]},
+{id:"srv-4",label:"Discovers pre-existing tmux sessions",steps:[
+"In a separate terminal, run <code>tmux new-session -d -s caam-preexisting bash</code>",
+"Restart the server (Ctrl+C, then <code>npm run dev</code>)",
+"Open <code>http://localhost:11001/api/terminals</code>",
+"<span class='expect'>Expected: array contains entry with name 'preexisting'</span>",
+"Clean up: <code>tmux kill-session -t caam-preexisting</code>"
+]}
+]}]},
+
+{title:"2. Frontend Loading",groups:[{name:"Initial Load",items:[
+{id:"fe-1",label:"Frontend loads at localhost:11000",steps:[
+"Open <code>http://localhost:11000</code> in browser",
+"<span class='expect'>Expected: dark-themed page with 'Terminals' sidebar on the left, empty grid area on the right</span>"
+]},
+{id:"fe-2",label:"Sidebar shows 'No terminals running' initially",steps:[
+"Check the sidebar panel",
+"<span class='expect'>Expected: text 'No terminals running' visible, input field and Spawn button visible</span>"
+]},
+{id:"fe-3",label:"Layout preset buttons visible",steps:[
+"Check the toolbar above the grid area",
+"<span class='expect'>Expected: buttons labeled 1x1, 2x1, 2x2, 3x2, 3x3</span>"
+]}
+]}]},
+
+{title:"3. Terminal Spawning",groups:[{name:"Spawn via Sidebar",items:[
+{id:"spawn-1",label:"Spawn a named terminal",steps:[
+"Type 'test-agent' in the name input field",
+"Click 'Spawn'",
+"<span class='expect'>Expected: terminal pane appears in the grid with header showing 'test-agent' and 'running' badge (green). Input field clears.</span>"
+]},
+{id:"spawn-2",label:"Spawn with default name",steps:[
+"Leave the name input empty",
+"Click 'Spawn'",
+"<span class='expect'>Expected: terminal spawns with auto-generated name like 'agent-2'</span>"
+]},
+{id:"spawn-3",label:"Spawn via Enter key",steps:[
+"Type a name in the input field",
+"Press Enter",
+"<span class='expect'>Expected: terminal spawns (same as clicking Spawn)</span>"
+]},
+{id:"spawn-4",label:"Sidebar updates after spawn",steps:[
+"After spawning 2-3 terminals, check the sidebar list",
+"<span class='expect'>Expected: all spawned terminals listed with name, 'running' status badge, and 'x' kill button</span>"
+]},
+{id:"spawn-5",label:"Tmux session created",steps:[
+"After spawning a terminal named 'verify-tmux'",
+"In a separate shell, run <code>tmux list-sessions</code>",
+"<span class='expect'>Expected: session named 'caam-verify-tmux' appears in the list</span>"
+]}
+]}]},
+
+{title:"4. Terminal I/O",groups:[{name:"Input & Output",items:[
+{id:"io-1",label:"Terminal shows bash prompt",steps:[
+"Spawn a terminal",
+"Wait a moment for the bash session to initialize",
+"<span class='expect'>Expected: terminal pane shows a bash prompt ($ or similar)</span>"
+]},
+{id:"io-2",label:"Type and execute a command",steps:[
+"Click inside the terminal pane to focus it",
+"Type <code>echo hello world</code> and press Enter",
+"<span class='expect'>Expected: 'hello world' appears in the terminal output</span>"
+]},
+{id:"io-3",label:"Interactive commands work",steps:[
+"Type <code>ls -la</code> and press Enter",
+"<span class='expect'>Expected: directory listing displays with colors/formatting preserved</span>"
+]},
+{id:"io-4",label:"Ctrl+C works",steps:[
+"Type <code>sleep 999</code> and press Enter",
+"Press Ctrl+C",
+"<span class='expect'>Expected: sleep command is interrupted, prompt returns</span>"
+]},
+{id:"io-5",label:"Claude Code spawns correctly",steps:[
+"Spawn a terminal (default command is <code>claude --dangerously-skip-permissions</code>)",
+"Wait for Claude Code to initialize",
+"<span class='expect'>Expected: Claude Code starts and shows its interface/prompt. Note: requires Claude Code CLI installed and authenticated.</span>"
+]},
+{id:"io-6",label:"Multiple terminals have independent I/O",steps:[
+"Spawn two terminals",
+"In terminal A, type <code>echo TERMINAL_A</code>",
+"In terminal B, type <code>echo TERMINAL_B</code>",
+"<span class='expect'>Expected: each terminal shows only its own output, no cross-contamination</span>"
+]}
+]}]},
+
+{title:"5. Grid Layout",groups:[{name:"Presets",items:[
+{id:"grid-1",label:"1x1 preset shows single terminal full-width",steps:[
+"Spawn 1 terminal",
+"Click the '1x1' preset button",
+"<span class='expect'>Expected: single terminal pane fills the entire grid area</span>"
+]},
+{id:"grid-2",label:"2x2 preset arranges 4 terminals in grid",steps:[
+"Spawn 4 terminals",
+"Click the '2x2' preset button",
+"<span class='expect'>Expected: terminals arranged in a 2x2 grid, each taking roughly 1/4 of the space</span>"
+]},
+{id:"grid-3",label:"Preset with fewer terminals than cells",steps:[
+"Spawn 2 terminals",
+"Click '2x2' preset",
+"<span class='expect'>Expected: 2 terminals placed in the grid, empty cells are fine</span>"
+]},
+{id:"grid-4",label:"Preset with more terminals than cells",steps:[
+"Spawn 5 terminals",
+"Click '2x2' preset",
+"<span class='expect'>Expected: terminals wrap or stack, all are visible (may need scrolling)</span>"
+]}
+]},{name:"Drag & Resize",items:[
+{id:"grid-5",label:"Drag terminal to reorder",steps:[
+"Spawn 3+ terminals",
+"Drag a terminal pane by its header bar to a different position",
+"<span class='expect'>Expected: terminal moves to the new position, other terminals reflow</span>"
+]},
+{id:"grid-6",label:"Resize terminal pane",steps:[
+"Grab the edge/corner of a terminal pane",
+"Drag to resize",
+"<span class='expect'>Expected: pane resizes, xterm.js content reflows to fit new dimensions</span>"
+]},
+{id:"grid-7",label:"Terminal content adapts to resize",steps:[
+"Resize a terminal pane to be much wider or narrower",
+"Type a long command",
+"<span class='expect'>Expected: text wraps correctly according to the new terminal dimensions</span>"
+]}
+]}]},
+
+{title:"6. Terminal Lifecycle",groups:[{name:"Kill & Cleanup",items:[
+{id:"kill-1",label:"Kill terminal via sidebar",steps:[
+"Spawn a terminal named 'kill-me'",
+"Click the 'x' button next to 'kill-me' in the sidebar",
+"<span class='expect'>Expected: terminal pane disappears from grid, entry removed from sidebar list</span>"
+]},
+{id:"kill-2",label:"Tmux session cleaned up on kill",steps:[
+"After killing terminal 'kill-me'",
+"Run <code>tmux list-sessions</code> in a separate shell",
+"<span class='expect'>Expected: 'caam-kill-me' no longer in the session list</span>"
+]},
+{id:"kill-3",label:"Kill all terminals",steps:[
+"Spawn 3 terminals, then kill them all one by one via sidebar",
+"<span class='expect'>Expected: grid is empty, sidebar shows 'No terminals running'</span>"
+]}
+]}]},
+
+{title:"7. WebSocket Resilience",groups:[{name:"Connection Handling",items:[
+{id:"ws-1",label:"WebSocket reconnects after server restart",steps:[
+"Spawn a terminal",
+"Restart the server (Ctrl+C the <code>npm run dev</code>, then restart)",
+"Wait 2-3 seconds for reconnection",
+"<span class='expect'>Expected: console shows 'WebSocket disconnected, reconnecting in 2s...' then 'WebSocket connected'. Previously spawned terminals may need re-discovery.</span>"
+]},
+{id:"ws-2",label:"Multiple browser tabs work independently",steps:[
+"Open <code>http://localhost:11000</code> in two separate tabs",
+"Spawn a terminal in Tab 1",
+"<span class='expect'>Expected: terminal appears in Tab 1. Tab 2 should also see the terminal after requesting a list (refresh page).</span>"
+]},
+{id:"ws-3",label:"Invalid messages handled gracefully",steps:[
+"Open browser DevTools console",
+"Type: <code>new WebSocket('ws://localhost:11000/ws').onopen = function(){ this.send('not json') }</code>",
+"<span class='expect'>Expected: server does not crash, existing terminals continue working</span>"
+]}
+]}]},
+
+{title:"8. Attach to Existing Sessions",groups:[{name:"Session Discovery",items:[
+{id:"attach-1",label:"Pre-existing tmux session appears after refresh",steps:[
+"In a separate shell, run <code>tmux new-session -d -s caam-external bash</code>",
+"Restart the server or trigger discovery",
+"<span class='expect'>Expected: terminal 'external' appears in the sidebar and grid, showing the bash session</span>"
+]},
+{id:"attach-2",label:"Can interact with attached session",steps:[
+"After attaching to 'caam-external'",
+"Type commands in the terminal pane",
+"<span class='expect'>Expected: commands execute in the external tmux session, output visible in browser</span>",
+"Clean up: kill via sidebar or <code>tmux kill-session -t caam-external</code>"
+]}
+]}]},
+
+{title:"9. Edge Cases",groups:[{name:"Stress & Boundary",items:[
+{id:"edge-1",label:"Spawn many terminals (6+)",steps:[
+"Spawn 6 or more terminals",
+"Switch to 3x2 or 3x3 layout",
+"<span class='expect'>Expected: all terminals visible and responsive, no crashes or freezes</span>"
+]},
+{id:"edge-2",label:"Rapid spawn and kill",steps:[
+"Quickly spawn 5 terminals, then quickly kill them all",
+"<span class='expect'>Expected: no errors in console, UI stays responsive, sidebar updates correctly</span>"
+]},
+{id:"edge-3",label:"Terminal with long-running output",steps:[
+"Spawn a terminal and run <code>yes | head -1000</code>",
+"<span class='expect'>Expected: output streams into the terminal pane without freezing the UI</span>"
+]},
+{id:"edge-4",label:"Browser resize",steps:[
+"With terminals open, resize the browser window significantly",
+"<span class='expect'>Expected: grid and terminal panes adapt, xterm.js content reflows</span>"
+]}
+]}]}
+];
+
+const STORAGE_KEY = 'caam-phase1-test-plan';
+let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+function getState(id) { return state[id] || 'pending'; }
+
+function setState(id, s) { state[id] = s; save(); render(); }
+
+function resetAll() { if(confirm('Reset all test results?')){ state={}; save(); render(); } }
+
+function toggleSection(el) {
+  el.parentElement.classList.toggle('collapsed');
+  el.classList.toggle('collapsed');
+}
+
+function render() {
+  const root = document.getElementById('sections');
+  root.innerHTML = '';
+  let total=0, passed=0, failed=0;
+
+  T.forEach(sec => {
+    const div = document.createElement('div');
+    div.className = 'section';
+    const h2 = document.createElement('h2');
+    h2.innerHTML = `<span class="arrow">&#9660;</span>${sec.title}`;
+    h2.onclick = function(){ toggleSection(this); };
+    div.appendChild(h2);
+
+    const itemsDiv = document.createElement('div');
+    itemsDiv.className = 'items';
+
+    sec.groups.forEach(g => {
+      if(g.name){ const h3=document.createElement('h3'); h3.textContent=g.name; itemsDiv.appendChild(h3); }
+      g.items.forEach(item => {
+        total++;
+        const s = getState(item.id);
+        if(s==='pass') passed++;
+        if(s==='fail') failed++;
+
+        const d = document.createElement('div');
+        d.className = 'item' + (s==='pass'?' checked':'') + (s==='fail'?' failed':'');
+        d.innerHTML = `
+          <input type="checkbox" ${s==='pass'?'checked':''} onchange="setState('${item.id}', this.checked?'pass':'pending')">
+          <div style="flex:1">
+            <div class="label">${item.label}</div>
+            <div class="steps"><ol>${item.steps.map(s=>'<li>'+s+'</li>').join('')}</ol></div>
+            ${s==='fail'?'<div class="fail-note">FAILED</div>':''}
+          </div>
+          <button class="fail-btn" onclick="setState('${item.id}','${s==='fail'?'pending':'fail'}')">${s==='fail'?'Clear fail':'Fail'}</button>
+        `;
+        itemsDiv.appendChild(d);
+      });
+    });
+    div.appendChild(itemsDiv);
+    root.appendChild(div);
+  });
+
+  const pending = total - passed - failed;
+  document.getElementById('passCount').textContent = passed + ' passed';
+  document.getElementById('failCount').textContent = failed + ' failed';
+  document.getElementById('pendingCount').textContent = pending + ' pending';
+  const pct = total ? Math.round(passed/total*100) : 0;
+  document.getElementById('progressPct').textContent = pct + '%';
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+render();
+</script>
+</body>
+</html>

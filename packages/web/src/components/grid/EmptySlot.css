@@ -1,0 +1,33 @@
+.empty-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--color-surface-1);
+  border: 1px dashed var(--color-border);
+  cursor: pointer;
+  gap: 6px;
+  transition: border-color 120ms ease;
+}
+
+.empty-slot:hover {
+  border-color: var(--color-border-focus);
+}
+
+.empty-slot:hover .empty-slot-icon,
+.empty-slot:hover .empty-slot-label {
+  color: var(--color-text-secondary);
+}
+
+.empty-slot-icon {
+  font-size: 24px;
+  color: var(--color-text-muted);
+  line-height: 1;
+}
+
+.empty-slot-label {
+  font-size: 12px;
+  font-family: var(--font-ui);
+  color: var(--color-text-muted);
+}

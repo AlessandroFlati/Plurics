@@ -1,0 +1,30 @@
+.pane-toolbar {
+  display: flex;
+  gap: 2px;
+}
+
+.pane-toolbar-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--color-text-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+}
+
+.pane-toolbar-btn:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text-primary);
+}
+
+.pane-toolbar-btn--merge:hover {
+  color: var(--color-error);
+  background: var(--color-surface-3);
+}

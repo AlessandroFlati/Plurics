@@ -1,0 +1,21 @@
+.split-layout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.split-layout .split-view-view {
+  overflow: hidden;
+}
+
+/* Allotment sash (drag handle) styling with design tokens */
+.split-layout [class*="sash-module_sash"] {
+  background: var(--color-border) !important;
+  transition: background 120ms ease;
+}
+
+.split-layout [class*="sash-module_sash"][class*="sash-module_hover"],
+.split-layout [class*="sash-module_sash"][class*="sash-module_active"] {
+  background: var(--color-border-focus) !important;
+}

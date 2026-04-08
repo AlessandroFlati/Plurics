@@ -268,3 +268,46 @@ The frontend provides a node-graph editor (using `reactflow`) that maps 1:1 to t
 - Bidirectional sync between YAML and visual editor
 
 Each phase is independently useful -- Phase 1 alone is a functional multi-terminal Claude Code manager.
+
+---
+
+## Phase 1 Implementation Notes
+
+Lessons learned and decisions that diverged from or refined the original design.
+
+### Terminal I/O: pipe-pane, not capture-pane
+
+The original design described "PTY pipe to tmux" generically. In practice, `tmux capture-pane` polling (tried first) strips ANSI escape sequences and produces garbage for TUI apps like Claude Code. The working approach uses `tmux pipe-pane -O` to stream raw PTY output through a FIFO (named pipe) created per session at `/tmp/caam-pipe-<id>`. A `cat` child process reads the FIFO and pushes data to WebSocket listeners.
+
+### Deferred Command Launch
+
+Tmux sessions are created with `bash` as the initial command, not the target command. The actual command (e.g., `claude --dangerously-skip-permissions`) is launched via `exec <command>` sent through `tmux send-keys` only after the client reports its terminal dimensions. This prevents the TUI from rendering at default dimensions (120x30) before xterm.js has measured its container.
+
+Sequence: create tmux(bash) -> client sends resize(cols, rows) -> server starts pipe-pane -> server sends `exec <command>\n` -> output streams to client.
+
+### xterm.js Fitting
+
+`@xterm/addon-fit` (FitAddon) consistently returns default 80x24 when the WebGL addon is loaded, regardless of container size. Replaced with manual cell dimension reading from xterm's internal `_renderService.dimensions.css.cell` (or `_charSizeService` fallback). This reads the exact pixel values the renderer uses.
+
+### Reconnection (Page Reload)
+
+On page reload, existing tmux sessions are rediscovered via `tmux list-sessions`. For each, the client sends `terminal:subscribe`. The server forces a SIGWINCH by toggling pane size (+1 row then back), causing the TUI to redraw at the correct dimensions. The client resets the xterm buffer before subscribing for a clean slate.
+
+The SIGWINCH toggle is only done for sessions where `isCommandRunning` is true (reconnect), not for fresh spawns.
+
+### Graceful Exit
+
+The `x` button sends two Ctrl+C (200ms apart) instead of killing the tmux session. This lets Claude Code exit gracefully. A 2-second exit poller detects when the session ends and fires cleanup callbacks.
+
+### CWD Gating
+
+Users must set and validate a working directory before spawning. The server provides `POST /api/validate-path` for validation and `GET /api/list-dirs?prefix=` for autocomplete. The CWD input locks after validation; spawn controls are disabled until a valid CWD is set.
+
+### Default Ports
+
+- Server: 11001
+- Frontend: 11000 (Vite dev proxy to server)
+
+### WebSocket Protocol Additions
+
+Beyond the original design, `terminal:subscribe` was added. Clients must explicitly subscribe to a terminal's output stream after spawn or reconnect. This decouples session creation from output delivery and enables clean reconnection.

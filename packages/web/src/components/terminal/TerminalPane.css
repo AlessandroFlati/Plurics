@@ -1,0 +1,62 @@
+.terminal-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.terminal-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  height: 32px;
+  background: var(--color-surface-1);
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.terminal-pane-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.terminal-pane-status-dot--running {
+  background: var(--color-success);
+}
+
+.terminal-pane-status-dot--exited {
+  background: var(--color-error);
+}
+
+.terminal-pane-name {
+  flex: 1;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-pane-toolbar-wrapper {
+  opacity: 1;
+}
+
+.terminal-pane-body {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+.terminal-pane-body .xterm {
+  height: 100%;
+}

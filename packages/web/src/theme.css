@@ -1,0 +1,35 @@
+:root {
+  /* Background layers */
+  --color-bg: #0f0f0f;
+  --color-surface-1: #171717;
+  --color-surface-2: #1f1f1f;
+  --color-surface-3: #2a2a2a;
+
+  /* Borders */
+  --color-border: #2e2e2e;
+  --color-border-focus: #525252;
+
+  /* Text */
+  --color-text-primary: #e5e5e5;
+  --color-text-secondary: #a3a3a3;
+  --color-text-muted: #525252;
+
+  /* Semantic */
+  --color-success: #4ade80;
+  --color-success-bg: rgba(74, 222, 128, 0.1);
+  --color-error: #f87171;
+  --color-error-bg: rgba(248, 113, 113, 0.1);
+
+  /* Shape */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+
+  /* Typography */
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Thin scrollbars for sidebar and dropdowns */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-surface-3); border-radius: 2px; }
