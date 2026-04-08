@@ -6,24 +6,13 @@ import { WorkspaceSelector } from './WorkspaceSelector';
 interface TerminalManagerProps {
   terminals: TerminalInfo[];
   onSpawn: (name: string, cwd: string) => void;
+  onOpenSpawnModal: () => void;
   onKill: (id: string) => void;
   onPresetSelect: (label: string, cols: number, rows: number) => void;
 }
 
-export function TerminalManager({ terminals, onSpawn, onKill, onPresetSelect: _onPresetSelect }: TerminalManagerProps) {
-  const [newName, setNewName] = useState('');
+export function TerminalManager({ terminals, onSpawn, onOpenSpawnModal, onKill, onPresetSelect: _onPresetSelect }: TerminalManagerProps) {
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
-
-  function handleSpawn() {
-    if (!activeCwd) return;
-    const name = newName.trim() || `agent-${terminals.length + 1}`;
-    onSpawn(name, activeCwd);
-    setNewName('');
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') handleSpawn();
-  }
 
   return (
     <div className="terminal-manager">
@@ -32,8 +21,8 @@ export function TerminalManager({ terminals, onSpawn, onKill, onPresetSelect: _o
       <div className="terminal-manager-section">
         <div className="terminal-manager-section-label">Workspace</div>
         <WorkspaceSelector
-          onSelect={(ws) => { setActiveCwd(ws.path); }}
-          onNewPath={(p) => { setActiveCwd(p); }}
+          onSelect={(ws) => { setActiveCwd(ws.path); onSpawn(ws.path, ws.path); }}
+          onNewPath={(p) => { setActiveCwd(p); onSpawn(p, p); }}
           locked={!!activeCwd}
           onUnlock={() => setActiveCwd(null)}
         />
@@ -45,17 +34,8 @@ export function TerminalManager({ terminals, onSpawn, onKill, onPresetSelect: _o
         <div className="terminal-manager-section-label">Terminals</div>
       </div>
       <div className={'terminal-manager-spawn' + (activeCwd ? '' : ' terminal-manager-spawn--disabled')}>
-        <input
-          type="text"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Terminal name..."
-          className="terminal-manager-input"
-          disabled={!activeCwd}
-        />
-        <button onClick={handleSpawn} className="terminal-manager-btn" disabled={!activeCwd}>
-          Spawn
+        <button onClick={onOpenSpawnModal} className="terminal-manager-btn" disabled={!activeCwd} style={{ width: '100%' }}>
+          Spawn Agent
         </button>
       </div>
 
