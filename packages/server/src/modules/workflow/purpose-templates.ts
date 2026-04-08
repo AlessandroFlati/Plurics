@@ -1,14 +1,14 @@
 import type { DagNode, WorkflowConfig } from './types.js';
-import type { Hypothesis } from './hypothesis-types.js';
-import type { DataManifest } from './manifest-types.js';
 import { buildSignalFilename } from './utils.js';
-import { extractVariableRefs } from './hypothesis-validator.js';
 
+/**
+ * Generate a generic purpose.md for an agent.
+ * Domain-specific enrichment happens via the plugin's onPurposeGenerate hook.
+ */
 export function generatePurpose(
   node: DagNode,
   workflowConfig: WorkflowConfig,
   presetContent: string,
-  testBudgetInfo?: { tests_executed: number; tests_remaining: number; significance_threshold_current: number },
 ): string {
   const sections: string[] = [];
 
@@ -37,17 +37,6 @@ export function generatePurpose(
       `Error category: ${node.signal.error.category}`,
       `Error message: ${node.signal.error.message}`,
       `\nAnalyze what went wrong and take a different approach.`,
-    ].join('\n'));
-  }
-
-  // 6. Test budget
-  if (testBudgetInfo) {
-    sections.push([
-      `## Test Budget`,
-      `Tests executed so far: ${testBudgetInfo.tests_executed}`,
-      `Tests remaining: ${testBudgetInfo.tests_remaining}`,
-      `Current significance threshold (BH-adjusted): ${testBudgetInfo.significance_threshold_current}`,
-      `\nIf tests_remaining is 0, write a signal with status "budget_exhausted".`,
     ].join('\n'));
   }
 
@@ -104,52 +93,4 @@ CRITICAL RULES:
 - ALWAYS use the .tmp + mv pattern (atomic rename)
 - ALWAYS compute sha256 AFTER the mv of the output file
 - If you encounter an unrecoverable error, still write a signal with status "failure"`;
-}
-
-// --- Manifest slicing for context window management ---
-
-export function manifestSlice(
-  agentName: string,
-  hypothesis: Hypothesis | null,
-  manifest: DataManifest,
-): string {
-  // Full manifest agents
-  if (['hypothesist', 'adversary', 'generalizer', 'meta_analyst'].includes(agentName)) {
-    return JSON.stringify(manifest, null, 2);
-  }
-
-  // Executor needs no manifest
-  if (agentName === 'executor') {
-    return '';
-  }
-
-  // Judge gets summary only
-  if (agentName === 'judge') {
-    return summarizeManifest(manifest);
-  }
-
-  // Hypothesis-scoped agents get filtered columns
-  if (hypothesis) {
-    const varNames = new Set(extractVariableRefs(hypothesis).map(r => r.name));
-    for (const c of hypothesis.confounders) varNames.add(c);
-    const filtered: DataManifest = {
-      ...manifest,
-      columns: manifest.columns.filter(c => varNames.has(c.name)),
-      correlations: manifest.correlations.filter(c => varNames.has(c.x) || varNames.has(c.y)),
-    };
-    return JSON.stringify(filtered, null, 2);
-  }
-
-  return summarizeManifest(manifest);
-}
-
-export function summarizeManifest(manifest: DataManifest): string {
-  return [
-    `Dataset: ${manifest.metadata.source_file}`,
-    `Rows: ${manifest.metadata.row_count}, Columns: ${manifest.metadata.column_count}`,
-    `Time series: ${manifest.metadata.is_time_series ? 'Yes (' + manifest.metadata.time_frequency + ')' : 'No'}`,
-    `Columns: ${manifest.columns.map(c => c.name + ' (' + c.semantic_type + ')').join(', ')}`,
-    `Quality score: ${manifest.quality.overall_score}/100`,
-    `Top correlations: ${manifest.correlations.slice(0, 5).map(c => c.x + '<->' + c.y + ' r=' + c.abs_value.toFixed(2)).join(', ')}`,
-  ].join('\n');
 }

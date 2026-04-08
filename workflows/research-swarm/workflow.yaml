@@ -1,0 +1,122 @@
+name: research-swarm
+version: 1
+plugin: ./plugin.ts
+
+config:
+  max_hypothesis_rounds: 3
+  max_audit_rounds: 5
+  max_total_tests: 50
+  agent_timeout_seconds: 300
+  base_significance: 0.05
+  max_parallel_hypotheses: 3
+  hypotheses_per_batch: 8
+  min_hypotheses_to_proceed: 2
+  script_timeout_seconds: 120
+
+shared_context: |
+  You are part of an autonomous research swarm analyzing a dataset.
+
+  WORKSPACE LAYOUT:
+    .caam/shared/data/dataset.parquet       - The dataset (read with pandas)
+    .caam/shared/data/dataset_sample.csv    - First 100 rows for quick inspection
+    .caam/shared/profiling-report.json      - Data manifest (after Profiler runs)
+    .caam/shared/test-registry.json         - Test budget and BH-corrected thresholds
+    .caam/shared/hypothesis-counter.json    - Next hypothesis ID to allocate
+    .caam/shared/hypotheses/                - All hypothesis files
+    .caam/shared/test-plans/                - Test plan files
+    .caam/shared/scripts/                   - Python test scripts
+    .caam/shared/results/                   - Test results and falsification reports
+    .caam/shared/audit/                     - Audit reports
+    .caam/shared/signals/                   - Completion signals (managed by protocol)
+
+  CRITICAL RULES:
+  1. Read your inputs from .caam/shared/ -- never ask the user for data.
+  2. Write your outputs to .caam/shared/ following the exact paths in your instructions.
+  3. Follow the Signal Protocol EXACTLY -- it is how the system knows you are done.
+  4. All JSON output must be valid, parseable JSON. Validate before writing.
+  5. Do not modify files outside your designated output paths.
+  6. If you encounter an error you cannot recover from, still write a signal with status "failure".
+
+nodes:
+
+  ingestor:
+    preset: research/ingestor
+    depends_on: []
+    timeout_seconds: 180
+
+  profiler:
+    preset: research/profiler
+    depends_on: [ingestor]
+    timeout_seconds: 300
+
+  hypothesist:
+    preset: research/hypothesist
+    depends_on: [profiler]
+    max_invocations: 3
+    timeout_seconds: 300
+
+  adversary:
+    preset: research/adversary
+    depends_on: [hypothesist]
+    timeout_seconds: 300
+
+  judge:
+    preset: research/judge
+    depends_on: [adversary]
+    branch:
+      - condition: "approved >= min"
+        goto: architect
+        foreach: approved_hypotheses
+      - condition: "rounds_remaining > 0"
+        goto: hypothesist
+
+  architect:
+    preset: research/architect
+    depends_on: [judge]
+    timeout_seconds: 240
+
+  coder:
+    preset: research/coder
+    depends_on: [architect]
+    timeout_seconds: 240
+
+  auditor:
+    preset: research/auditor
+    depends_on: [coder]
+    max_invocations: 5
+    branch:
+      - condition: "clean"
+        goto: executor
+      - condition: "has_bugs"
+        goto: fixer
+
+  fixer:
+    preset: research/fixer
+    depends_on: [auditor]
+    next: auditor
+    timeout_seconds: 240
+
+  executor:
+    preset: research/executor
+    depends_on: [auditor]
+    timeout_seconds: 240
+
+  falsifier:
+    preset: research/falsifier
+    depends_on: [executor]
+    timeout_seconds: 360
+    branch:
+      - condition: "survived"
+        goto: generalizer
+      - condition: "falsified"
+        goto: hypothesist
+
+  generalizer:
+    preset: research/generalizer
+    depends_on: [falsifier]
+    timeout_seconds: 360
+
+  meta_analyst:
+    preset: research/meta-analyst
+    depends_on_all: [generalizer]
+    timeout_seconds: 600

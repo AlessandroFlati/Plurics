@@ -1,6 +1,6 @@
 # Claude Agent Auto Manager (CAAM) - Architecture Document
 
-Last updated: 2026-04-08 11:02 UTC
+Last updated: 2026-04-08 16:02 UTC
 
 ## Overview
 
@@ -183,15 +183,38 @@ Presets are reusable purpose templates stored in SQLite (`agent_presets` table) 
 
 ## Workflow Orchestration
 
-### Overview
+### Three-Layer Architecture
 
-Workflows are YAML-defined DAGs of agent nodes. The `DagExecutor` manages the pipeline lifecycle: spawning agents, watching for completion signals, handling timeouts/retries, branching decisions, and fan-out.
+```
+Layer 3: Workflow Instance    workflows/research-swarm/
+  workflow.yaml, presets/, schemas/, plugin.ts
+
+Layer 2: Workflow SDK         packages/server/src/modules/workflow/sdk.ts
+  WorkflowPlugin interface, hook points, lifecycle contracts
+
+Layer 1: CAAM Platform        packages/server/ + packages/web/
+  Terminals, signals, DAG executor, UI (domain-agnostic)
+```
+
+**Layer 1 (Platform)** owns terminal management, signal protocol, DAG state machine, YAML parsing, and the frontend. It has no knowledge of what agents do inside their terminals.
+
+**Layer 2 (SDK)** defines the `WorkflowPlugin` interface with 5 hook points: `onWorkflowStart`, `onSignalReceived`, `onPurposeGenerate`, `onEvaluateReadiness`, `onWorkflowComplete`.
+
+**Layer 3 (Instance)** is a self-contained directory with workflow YAML, agent presets, domain schemas, and a plugin that implements the hooks with domain-specific logic.
+
+### Plugin System
+
+Workflows can specify a `plugin` field in their YAML. The DAG executor dynamically imports the plugin at workflow start and calls its hooks at defined points:
+
+- **onWorkflowStart**: Initialize domain registries, counters, directories
+- **onSignalReceived**: Process signals with domain logic (e.g., update test budget)
+- **onPurposeGenerate**: Enrich agent purpose with domain context (e.g., data manifest slices)
+- **onEvaluateReadiness**: Custom readiness logic for aggregator nodes
+- **onWorkflowComplete**: Cleanup, notifications
 
 ### Signal Protocol
 
-Agents report completion by writing JSON signal files to `.caam/shared/signals/`. The signal is the sole mechanism by which the executor learns an agent has finished. Signals use atomic write (`.tmp` + rename) and include SHA-256 checksums for output integrity.
-
-Signal statuses: `success`, `failure`, `branch` (with goto decision), `budget_exhausted`.
+Agents report completion by writing JSON signal files to `.caam/shared/signals/`. Signals use atomic write (`.tmp` + rename) and include SHA-256 checksums for output integrity. The signal schema is domain-agnostic — `decision.payload` is `unknown`, interpreted by the plugin.
 
 ### DAG State Machine
 
@@ -202,53 +225,40 @@ pending -> ready -> spawning -> running -> validating -> completed
                                retrying     retrying -> failed
 ```
 
-Features:
-- **Timeout**: configurable per-node, kills terminal and retries
-- **Retry**: up to `max_retries` with error context injected into purpose
-- **Branch**: signal's `decision.goto` routes to target node
-- **Fan-out**: `foreach` in branch creates scoped sub-DAGs (one per item)
-- **Concurrency limit**: `max_parallel_hypotheses` semaphore on scoped nodes
-- **Graceful degradation**: meta-analyst runs even when no hypotheses survive
-- **Namespace guard**: validates agent outputs match their scope
+Features: timeout, retry with context, branch (decision.goto), fan-out (foreach), concurrency semaphore, namespace guard.
 
 ### Workflow YAML
 
 ```yaml
 name: my-pipeline
 version: 1
+plugin: ./plugin.ts                # Optional: WorkflowPlugin module
 config:
-  agent_timeout_seconds: 300
-  max_parallel_hypotheses: 3
+  agent_timeout_seconds: 300       # Platform config
+  max_parallel_hypotheses: 3       # Platform config
+  custom_domain_key: 42            # Passed through to plugin
 shared_context: |
-  Description of the task for all agents.
+  Instructions for all agents.
 nodes:
   step_a:
-    preset: my-presets/step-a
+    preset: presets/step-a
     depends_on: []
   step_b:
-    preset: my-presets/step-b
+    preset: presets/step-b
     depends_on: [step_a]
     branch:
       - condition: "ready"
         goto: step_c
         foreach: items
-  step_c:
-    preset: my-presets/step-c
-    depends_on: [step_b]
 ```
 
 ### Preset Resolution
 
-The `preset` field in workflow nodes is resolved by:
 1. Filesystem: `workflows/presets/{name}.md`
-2. Database: `agent_presets` table by name
+2. Database: `agent_presets` table
 3. Fallback: generic description
 
-Templates use `{{PLACEHOLDER}}` syntax resolved at spawn time (e.g., `{{ROUND}}`, `{{HYPOTHESIS_ID}}`).
-
-### Registrar
-
-Server-side module for statistical test budget tracking. Maintains a test registry and applies Benjamini-Hochberg FDR correction after each test. Used by research workflows to prevent p-hacking.
+Templates use `{{PLACEHOLDER}}` syntax resolved at spawn time. All config values are available as uppercase placeholders.
 
 ---
 
