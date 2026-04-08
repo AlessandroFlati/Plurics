@@ -1,6 +1,6 @@
 # Claude Agent Auto Manager (CAAM) - Architecture Document
 
-Last updated: 2026-04-08 16:02 UTC
+Last updated: 2026-04-08 18:37 UTC
 
 ## Overview
 
@@ -355,12 +355,32 @@ The research swarm demonstrates: structured data schemas (Hypothesis DSL with 6 
 
 ---
 
+## Traceability
+
+Each workflow run creates an isolated directory under `.caam/runs/{runId}/`:
+
+```
+.caam/runs/{runId}/
+  purposes/          # Every agent's generated purpose.md (including retries)
+  logs/              # Terminal output captured per agent
+  signals/           # Completion signal files
+  run-metadata.json  # Timing, config, summary
+  input-manifest.json
+```
+
+REST endpoints: `GET /api/workflows/runs/:id/log/:agent`, `/purpose/:agent`, `/metadata`
+
+`.caam/shared` is a symlink to the current run directory — agents write to `shared/` as usual, traceability is automatic.
+
+---
+
 ## Testing
 
-63 tests across 6 test files:
+68 unit tests across 5 test files:
 - Signal validator: schema + output integrity (12 tests)
 - YAML parser: validation + cycle detection (8 tests)
 - DAG executor: state machine + node graph (22 tests)
-- Registrar: BH correction + budget (7 tests)
-- Hypothesis validator: DSL rules (10 tests)
+- Input validator: 12 source types, SQL injection guard (22 tests)
 - Workflow repository: run + event CRUD (4 tests)
+
+End-to-end validated with synthetic number theory dataset (10K integers, 1.2K prime gaps, 39K digit distributions). Pipeline successfully executed: Ingestor (42s) -> Profiler (159s) -> Hypothesist (172s) -> Adversary -> Judge -> ... with full traceability (purposes, logs, signals persisted per run).
