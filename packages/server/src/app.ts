@@ -239,6 +239,48 @@ app.get('/api/workflow-files/:name', (req, res) => {
   }
 });
 
+app.get('/api/workflows/runs/resumable', (_req, res) => {
+  const runs = workflowRepo.listResumableRuns();
+  res.json(runs.map(r => ({
+    id: r.id,
+    workflow_name: r.workflow_name,
+    status: r.status,
+    started_at: r.started_at,
+    node_count: r.node_count,
+    nodes_completed: r.nodes_completed,
+    nodes_failed: r.nodes_failed,
+  })));
+});
+
+app.get('/api/workflows/runs/:runId/findings', (req, res) => {
+  const run = workflowRepo.getRun(req.params.runId);
+  if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
+  const findingsDir = path.join(run.workspace_path, '.caam', 'runs', req.params.runId, 'findings');
+  try {
+    const files = fs.readdirSync(findingsDir).filter(f => f.endsWith('.md'));
+    const findings = files.map(f => {
+      const content = fs.readFileSync(path.join(findingsDir, f), 'utf-8');
+      const hypothesisId = f.replace('-finding.md', '');
+      return { hypothesisId, content };
+    });
+    res.json(findings);
+  } catch {
+    // Also check shared/findings (symlink may point to run dir)
+    const sharedDir = path.join(run.workspace_path, '.caam', 'shared', 'findings');
+    try {
+      const files = fs.readdirSync(sharedDir).filter(f => f.endsWith('.md'));
+      const findings = files.map(f => {
+        const content = fs.readFileSync(path.join(sharedDir, f), 'utf-8');
+        const hypothesisId = f.replace('-finding.md', '');
+        return { hypothesisId, content };
+      });
+      res.json(findings);
+    } catch {
+      res.json([]);
+    }
+  }
+});
+
 createWebSocketServer(server, registry, bootstrap, presetRepo, workflowRepo, projectRoot);
 
 registry.onTerminalExit(() => {

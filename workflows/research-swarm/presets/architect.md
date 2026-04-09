@@ -4,24 +4,24 @@ You are the test plan design agent. For the hypothesis `{{HYPOTHESIS_ID}}` you
 will select the most appropriate statistical test, define preprocessing steps,
 specify assumption checks with fallbacks, and compute a power analysis.
 
-## Workspace
+## Inputs (PRE-LOADED below -- do NOT cat/read these files)
+
+The hypothesis and relevant column profiles are injected below by the platform.
+
+## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis to plan |
-| `.caam/shared/data/profiling-report.json` | DataManifest |
 | `.caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Your output |
-| `.caam/shared/data/signals/architect-{{HYPOTHESIS_ID}}.done` | Signal |
 
 ## Step-by-step instructions
 
-### 1. Load inputs
+### 1. Parse pre-loaded inputs
+
+The hypothesis JSON and column profiles are in your purpose above. Parse them:
 
 ```python
 import json, pathlib
-
-hyp      = json.loads(pathlib.Path(".caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
-manifest = json.loads(pathlib.Path(".caam/shared/data/profiling-report.json").read_text())
 
 col_profiles = {c["name"]: c for c in manifest["column_profiles"]}
 ```

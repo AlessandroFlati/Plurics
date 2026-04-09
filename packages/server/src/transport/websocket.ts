@@ -188,6 +188,10 @@ async function handleMessage(
         activeExecutors.delete(runId);
       });
 
+      executor.setFindingHandler((runId, hypothesisId, content) => {
+        sendMessage(ws, { type: 'workflow:finding', runId, hypothesisId, content });
+      });
+
       activeExecutors.set(executor.runId, executor);
 
       const nodeCount = Object.keys(config.nodes).length;
@@ -254,6 +258,58 @@ async function handleMessage(
         const nodes = [...executor.getNodes().values()].map(n => ({ name: n.name, state: n.state, scope: n.scope }));
         sendMessage(ws, { type: 'workflow:started', runId: msg.runId, nodeCount: run.node_count, nodes });
       }
+      break;
+    }
+
+    case 'workflow:resume-run': {
+      // Check if already active
+      if (activeExecutors.has(msg.runId)) {
+        sendMessage(ws, { type: 'error', message: `Run ${msg.runId} is already active` });
+        return;
+      }
+
+      // Load run from DB
+      const run = workflowRepo.getRun(msg.runId);
+      if (!run) {
+        sendMessage(ws, { type: 'error', message: `Run not found: ${msg.runId}` });
+        return;
+      }
+      if (run.status === 'completed') {
+        sendMessage(ws, { type: 'error', message: `Run ${msg.runId} already completed` });
+        return;
+      }
+
+      // Rebuild executor from stored YAML
+      const config = parseWorkflow(run.yaml_content);
+      const executor = new DagExecutor(config, run.workspace_path, projectRoot, registry, bootstrap, presetRepo);
+
+      executor.setStateChangeHandler((runId, node, fromState, toState, event, terminalId) => {
+        sendMessage(ws, { type: 'workflow:node-update', runId, node, fromState, toState, event, terminalId });
+      });
+
+      executor.setCompleteHandler((runId, summary) => {
+        workflowRepo.updateRunStatus(runId, summary.failed > 0 ? 'failed' : 'completed', summary.completed, summary.failed);
+        sendMessage(ws, { type: 'workflow:completed', runId, summary });
+        activeExecutors.delete(runId);
+      });
+
+      executor.setFindingHandler((runId, hypothesisId, content) => {
+        sendMessage(ws, { type: 'workflow:finding', runId, hypothesisId, content });
+      });
+
+      try {
+        await executor.resumeFrom(msg.runId);
+      } catch (err) {
+        sendMessage(ws, { type: 'error', message: `Resume failed: ${err instanceof Error ? err.message : String(err)}` });
+        return;
+      }
+
+      activeExecutors.set(msg.runId, executor);
+      workflowRepo.updateRunStatus(msg.runId, 'running', 0, 0);
+
+      // Send current state to client
+      const nodes = [...executor.getNodes().values()].map(n => ({ name: n.name, state: n.state, scope: n.scope }));
+      sendMessage(ws, { type: 'workflow:started', runId: msg.runId, nodeCount: nodes.length, nodes });
       break;
     }
 

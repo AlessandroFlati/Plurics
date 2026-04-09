@@ -5,17 +5,21 @@ pipeline and produce a comprehensive final report covering: a finding inventory,
 clustered results, a causal graph, consistency checks, a gap analysis, and an
 importance ranking.
 
-## Workspace
+## Inputs (PRE-LOADED below -- do NOT cat/read summary tables)
+
+A hypothesis summary digest and test registry are injected below by the platform.
+For full details, read specific files from these directories:
+- `.caam/shared/findings/` -- Human-readable finding reports (primary input)
+- `.caam/shared/data/hypotheses/` -- Hypothesis JSON files
+- `.caam/shared/data/results/` -- Result JSON files
+- `.caam/shared/data/audit/` -- Falsification and generalization reports
+
+## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/` | All `H-NNN.json` files |
-| `.caam/shared/data/results/` | All `H-NNN-result.json` files |
-| `.caam/shared/data/audit/` | All `*-falsification.json` and `*-generalized.json` files |
-| `.caam/shared/data/profiling-report.json` | DataManifest |
 | `.caam/shared/data/final-report.json` | Machine-readable output |
 | `.caam/shared/data/final-report.md` | Human-readable output |
-| `.caam/shared/data/signals/meta-analyst.done` | Signal |
 
 ## Step-by-step instructions
 
@@ -30,30 +34,35 @@ subprocess.check_call([sys.executable, "-m", "pip", "install",
 import pandas as pd, numpy as np
 
 data_dir = pathlib.Path(".caam/shared/data")
+findings_dir = pathlib.Path(".caam/shared/findings")
+
+# Load findings (human-readable summaries -- use these as primary reference)
+finding_files = sorted(findings_dir.glob("H-*-finding.md"))
+findings = {}
+for p in finding_files:
+    hid = p.stem.replace("-finding", "")
+    findings[hid] = p.read_text()
 
 # Load manifest
 manifest = json.loads((data_dir / "profiling-report.json").read_text())
 col_profiles = {c["name"]: c for c in manifest["column_profiles"]}
 
-# Load all hypotheses
+# Load structured data for quantitative analysis
 hyp_files = sorted((data_dir / "hypotheses").glob("H-*.json"))
 hypotheses = {p.stem: json.loads(p.read_text()) for p in hyp_files}
 
-# Load all results
 result_files = sorted((data_dir / "results").glob("H-*-result.json"))
 results = {}
 for p in result_files:
     hid = p.stem.replace("-result", "")
     results[hid] = json.loads(p.read_text())
 
-# Load falsification reports
 falsification_files = sorted((data_dir / "audit").glob("H-*-falsification.json"))
 falsifications = {}
 for p in falsification_files:
     hid = p.stem.replace("-falsification", "")
     falsifications[hid] = json.loads(p.read_text())
 
-# Load generalisation reports
 generalized_files = sorted((data_dir / "audit").glob("H-*-generalized.json"))
 generalizations = {}
 for p in generalized_files:
@@ -281,6 +290,10 @@ tmp.rename(out)
 
 ### 9. Write final-report.md
 
+Use the finding documents from `.caam/shared/findings/` as the basis for the
+human-readable report. Each finding document is already a self-contained summary;
+incorporate them directly rather than re-summarizing from JSON.
+
 Write a human-readable markdown report structured as follows:
 
 ```markdown
@@ -294,16 +307,13 @@ Generated: <ISO-8601 timestamp>
 
 ## Top Findings
 
-For each of the top 5 ranked findings (or fewer if < 5 validated):
+For each of the top 5 ranked findings (by importance score), include:
 
-### Finding N: <title>
+### Finding N: <title> (Importance: <score>)
 
-- **Hypothesis**: <statement>
-- **Variables**: <primary> and <secondary>
-- **Result**: <test used>, effect size = <value>, p = <value>
-- **Robustness**: <survived/falsified>, <N> checks passed
-- **Generalisability**: <scope>
-- **Importance score**: <value>
+{Insert the content from the corresponding H-NNN-finding.md file here,
+preserving all sections: Hypothesis, Method, Result, Falsification,
+Generalization, and Verdict.}
 
 ## Causal Graph
 

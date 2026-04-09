@@ -1,0 +1,101 @@
+.findings-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-secondary, #1e1e1e);
+}
+
+.findings-panel-title {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary, #888);
+  border-bottom: 1px solid var(--color-border, #333);
+  flex-shrink: 0;
+}
+
+.findings-panel-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #666);
+  font-style: italic;
+}
+
+.findings-panel-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.findings-panel-item {
+  border-bottom: 1px solid var(--color-border, #333);
+}
+
+.findings-panel-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--color-text-primary, #ddd);
+  font-family: var(--font-ui, inherit);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.findings-panel-item-header:hover {
+  background: var(--color-bg-hover, #2a2a2a);
+}
+
+.findings-panel-item-id {
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--color-accent, #569cd6);
+  flex-shrink: 0;
+}
+
+.findings-panel-item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-primary, #ccc);
+}
+
+.findings-panel-item-verdict {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.findings-panel-item-chevron {
+  font-size: 10px;
+  color: var(--color-text-secondary, #666);
+  flex-shrink: 0;
+}
+
+.findings-panel-item-content {
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--color-border, #2a2a2a);
+  background: var(--color-bg, #181818);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.findings-panel-item-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-primary, #ccc);
+}

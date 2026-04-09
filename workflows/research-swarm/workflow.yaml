@@ -16,26 +16,25 @@ config:
 shared_context: |
   You are part of an autonomous research swarm analyzing a dataset.
 
-  WORKSPACE LAYOUT:
-    .caam/shared/data/dataset.parquet       - The dataset (read with pandas)
-    .caam/shared/data/dataset_sample.csv    - First 100 rows for quick inspection
-    .caam/shared/profiling-report.json      - Data manifest (after Profiler runs)
-    .caam/shared/test-registry.json         - Test budget and BH-corrected thresholds
-    .caam/shared/hypothesis-counter.json    - Next hypothesis ID to allocate
-    .caam/shared/hypotheses/                - All hypothesis files
-    .caam/shared/test-plans/                - Test plan files
-    .caam/shared/scripts/                   - Python test scripts
-    .caam/shared/results/                   - Test results and falsification reports
-    .caam/shared/audit/                     - Audit reports
-    .caam/shared/signals/                   - Completion signals (managed by protocol)
+  WORKSPACE:
+    .caam/shared/data/          - All data artifacts (dataset, hypotheses, results, etc.)
+    .caam/shared/findings/      - Human-readable finding reports
+    .caam/shared/signals/       - Completion signals
 
-  CRITICAL RULES:
-  1. Read your inputs from .caam/shared/ -- never ask the user for data.
-  2. Write your outputs to .caam/shared/ following the exact paths in your instructions.
-  3. Follow the Signal Protocol EXACTLY -- it is how the system knows you are done.
-  4. All JSON output must be valid, parseable JSON. Validate before writing.
+  RULES:
+  1. Your inputs are PRE-LOADED in your purpose below. Do NOT cat/read files that are already shown inline.
+  2. Write outputs to .caam/shared/ following the exact paths in your instructions.
+  3. Follow the Signal Protocol EXACTLY.
+  4. All JSON output must be valid. Validate before writing.
   5. Do not modify files outside your designated output paths.
-  6. If you encounter an error you cannot recover from, still write a signal with status "failure".
+  6. On unrecoverable error, still write a signal with status "failure".
+
+  SIGNAL PROTOCOL:
+  1. Write output files: cat > .caam/{path}.tmp << 'EOF' ... EOF && mv .caam/{path}.tmp .caam/{path}
+  2. Verify JSON: python3 -c "import json; json.load(open('.caam/{path}'))"
+  3. Compute integrity: sha256sum .caam/{path} | cut -d' ' -f1 ; wc -c < .caam/{path}
+  4. Write signal file (ALWAYS LAST) using your per-agent template, via .tmp + mv.
+  Rules: signal AFTER all outputs; always .tmp+mv; sha256 AFTER mv; use size_bytes not size; paths relative to .caam/.
 
 nodes:
 
@@ -141,7 +140,14 @@ nodes:
     model: opus
     effort: low
 
+  reporter:
+    preset: research/reporter
+    depends_on: [generalizer]
+    timeout_seconds: 300
+    model: sonnet
+    effort: low
+
   meta_analyst:
     preset: research/meta-analyst
-    depends_on_all: [generalizer]
+    depends_on_all: [reporter]
     timeout_seconds: 600

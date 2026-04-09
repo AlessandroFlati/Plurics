@@ -18,6 +18,11 @@ export interface WorkflowSummary {
   duration_seconds: number;
 }
 
+export interface Finding {
+  hypothesisId: string;
+  content: string;
+}
+
 export interface WorkflowState {
   yaml: string;
   runId: string | null;
@@ -25,6 +30,7 @@ export interface WorkflowState {
   summary: WorkflowSummary | null;
   error: string;
   paused: boolean;
+  findings: Finding[];
 }
 
 interface WorkflowPanelProps {
@@ -42,6 +48,7 @@ export function useWorkflowState(ws: WebSocketClient | null): [WorkflowState, (s
     summary: null,
     error: '',
     paused: false,
+    findings: [],
   });
 
   function update(partial: Partial<WorkflowState>) {
@@ -54,7 +61,7 @@ export function useWorkflowState(ws: WebSocketClient | null): [WorkflowState, (s
     return ws.onMessage((msg: ServerMessage) => {
       switch (msg.type) {
         case 'workflow:started':
-          setState(prev => ({ ...prev, runId: msg.runId, nodes: msg.nodes, summary: null, error: '' }));
+          setState(prev => ({ ...prev, runId: msg.runId, nodes: msg.nodes, summary: null, error: '', findings: [] }));
           break;
 
         case 'workflow:node-update':
@@ -77,6 +84,14 @@ export function useWorkflowState(ws: WebSocketClient | null): [WorkflowState, (s
 
         case 'workflow:resumed':
           setState(prev => ({ ...prev, paused: false }));
+          break;
+
+        case 'workflow:finding':
+          setState(prev => {
+            const exists = prev.findings.some(f => f.hypothesisId === msg.hypothesisId);
+            if (exists) return prev;
+            return { ...prev, findings: [...prev.findings, { hypothesisId: msg.hypothesisId, content: msg.content }] };
+          });
           break;
 
         case 'error':
@@ -108,17 +123,31 @@ function sourceLabel(src: DataSource): string {
   }
 }
 
+interface ResumableRun {
+  id: string;
+  workflow_name: string;
+  status: string;
+  started_at: string;
+  node_count: number;
+  nodes_completed: number;
+}
+
 export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange }: WorkflowPanelProps) {
   const [workflowFiles, setWorkflowFiles] = useState<string[]>([]);
   const [sources, setSources] = useState<DataSource[]>([]);
   const [description, setDescription] = useState('');
   const [showSourceModal, setShowSourceModal] = useState(false);
+  const [resumableRuns, setResumableRuns] = useState<ResumableRun[]>([]);
   const { yaml, runId, summary, error } = workflowState;
 
   useEffect(() => {
     fetch('/api/workflow-files')
       .then(r => r.json())
       .then(setWorkflowFiles)
+      .catch(() => {});
+    fetch('/api/workflows/runs/resumable')
+      .then(r => r.json())
+      .then(setResumableRuns)
       .catch(() => {});
   }, []);
 
@@ -139,6 +168,13 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
       workspacePath,
       inputManifest: sources.length > 0 ? inputManifest : undefined,
     });
+  }
+
+  function handleResumeRun(resumeRunId: string) {
+    if (!ws) return;
+    onStateChange({ error: '', summary: null, nodes: [] });
+    ws.send({ type: 'workflow:resume-run', runId: resumeRunId });
+    setResumableRuns(prev => prev.filter(r => r.id !== resumeRunId));
   }
 
   function handleAbort() {
@@ -256,6 +292,25 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
           </button>
         )}
       </div>
+
+      {!isRunning && resumableRuns.length > 0 && (
+        <div className="workflow-panel-section-label">Resumable Runs</div>
+      )}
+      {!isRunning && resumableRuns.map(r => (
+        <div key={r.id} className="workflow-panel-source" style={{ flexWrap: 'wrap' }}>
+          <span className="workflow-panel-source-type" title={r.id}>{r.workflow_name}</span>
+          <span className="workflow-panel-source-name" style={{ fontSize: 10 }}>
+            {r.nodes_completed}/{r.node_count} nodes
+          </span>
+          <button
+            className="workflow-panel-btn"
+            style={{ padding: '2px 8px', fontSize: 10 }}
+            onClick={() => handleResumeRun(r.id)}
+          >
+            Resume
+          </button>
+        </div>
+      ))}
 
       {error && <div className="workflow-panel-status" style={{ color: 'var(--color-error)' }}>{error}</div>}
 

@@ -6,12 +6,14 @@ import type {
   NodeState,
   SignalFile,
   EventLogEntry,
+  NodeSnapshot,
+  RunSnapshot,
 } from './types.js';
 import { TRANSITIONS } from './types.js';
 import { SignalWatcher } from './signal-watcher.js';
 import { validateSignalOutputs } from './signal-validator.js';
 import { generatePurpose } from './purpose-templates.js';
-import { randomHex, writeJsonAtomic } from './utils.js';
+import { randomHex, writeJsonAtomic, waitForOutput, normalizeAgentPath } from './utils.js';
 import { resolvePresetContent, resolvePlaceholders } from './preset-resolver.js';
 import type { WorkflowPlugin } from './sdk.js';
 import type { TerminalRegistry } from '../terminal/terminal-registry.js';
@@ -22,6 +24,7 @@ type StateChangeCallback = (
   runId: string, node: string, fromState: NodeState, toState: NodeState, event: string, terminalId?: string
 ) => void;
 type WorkflowCompleteCallback = (runId: string, summary: WorkflowSummary) => void;
+type FindingCallback = (runId: string, hypothesisId: string, content: string) => void;
 
 export interface WorkflowSummary {
   total_nodes: number;
@@ -46,6 +49,7 @@ export class DagExecutor {
   private startedAt: number = 0;
   private onStateChange: StateChangeCallback | null = null;
   private onComplete: WorkflowCompleteCallback | null = null;
+  private onFinding: FindingCallback | null = null;
   private activeSubDags: number = 0;
   private paused: boolean = false;
 
@@ -73,6 +77,10 @@ export class DagExecutor {
 
   setCompleteHandler(handler: WorkflowCompleteCallback): void {
     this.onComplete = handler;
+  }
+
+  setFindingHandler(handler: FindingCallback): void {
+    this.onFinding = handler;
   }
 
   getNodes(): Map<string, DagNode> {
@@ -117,6 +125,169 @@ export class DagExecutor {
 
     this.evaluateReadyNodes();
     await this.scheduleReadyNodes();
+  }
+
+  /**
+   * Resume a previously interrupted run from disk state.
+   * 1. Load plugin
+   * 2. Load snapshot (node graph with scoped nodes)
+   * 3. Recover signals for completed nodes
+   * 4. Demote orphaned running/spawning nodes to ready
+   * 5. Re-scan for signals written after snapshot
+   * 6. Call plugin.onWorkflowResume
+   * 7. Re-evaluate and reschedule
+   */
+  async resumeFrom(existingRunId: string): Promise<void> {
+    // Override the auto-generated runId with the existing one
+    (this as { runId: string }).runId = existingRunId;
+    this.startedAt = Date.now();
+    this.bootstrap.setCwd(this.workspacePath);
+
+    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+
+    // Ensure shared symlink points to this run
+    const sharedLink = path.join(this.workspacePath, '.caam', 'shared');
+    try { await fs.unlink(sharedLink); } catch { /* may not exist */ }
+    try {
+      await fs.symlink(runDir, sharedLink, 'junction');
+    } catch {
+      // Non-admin Windows — shared may already be a real dir from original run
+    }
+
+    // Load plugin
+    if (this.workflowConfig.plugin) {
+      try {
+        const pluginPath = path.resolve(
+          path.dirname(this.workflowConfig._yamlPath ?? ''),
+          this.workflowConfig.plugin,
+        );
+        const pluginModule = await import(pluginPath);
+        this.plugin = pluginModule.default as WorkflowPlugin;
+      } catch { /* proceed without plugin */ }
+    }
+
+    // Load snapshot
+    const snapshotPath = path.join(runDir, 'node-states.json');
+    let snapshot: RunSnapshot;
+    try {
+      snapshot = JSON.parse(await fs.readFile(snapshotPath, 'utf-8')) as RunSnapshot;
+    } catch {
+      throw new Error(`Cannot resume run ${existingRunId}: node-states.json not found`);
+    }
+
+    // Rebuild node graph from snapshot (includes scoped nodes)
+    for (const ns of snapshot.nodes) {
+      this.nodes.set(ns.key, {
+        name: ns.name,
+        preset: ns.preset,
+        state: ns.state,
+        scope: ns.scope,
+        dependsOn: [...ns.dependsOn],
+        terminalId: null, // Terminals are gone
+        retryCount: ns.retryCount,
+        maxRetries: ns.maxRetries,
+        invocationCount: ns.invocationCount,
+        maxInvocations: ns.maxInvocations,
+        timeoutMs: ns.timeoutMs,
+        timeoutTimer: null,
+        signal: null, // Will be recovered from signal files
+        startedAt: ns.startedAt,
+      });
+    }
+
+    // Recover signals from disk for completed/failed nodes
+    const signalIds = new Set<string>();
+    try {
+      await this.recoverSignalsFromDisk(runDir, signalIds);
+    } catch { /* best effort */ }
+
+    // Demote orphaned nodes: running/spawning/validating -> ready (terminals are dead)
+    for (const [, node] of this.nodes) {
+      if (['running', 'spawning', 'validating'].includes(node.state)) {
+        if (node.signal && ['completed', 'failed'].includes(this.inferStateFromSignal(node.signal))) {
+          // Signal exists but state wasn't updated — fix it
+          node.state = node.signal.status === 'failure' ? 'failed' : 'completed';
+        } else if (node.retryCount < node.maxRetries) {
+          node.state = 'ready';
+        } else {
+          node.state = 'failed';
+        }
+      }
+      if (node.state === 'retrying') {
+        node.state = node.retryCount < node.maxRetries ? 'ready' : 'failed';
+      }
+    }
+
+    // Re-scan for signals written AFTER the snapshot (race condition recovery)
+    try {
+      await this.recoverSignalsFromDisk(runDir, signalIds);
+    } catch { /* best effort */ }
+
+    // Plugin resume hook
+    const completedNodes = [...this.nodes.values()]
+      .filter(n => n.state === 'completed')
+      .map(n => ({ name: n.name, scope: n.scope, signal: n.signal }));
+
+    if (this.plugin?.onWorkflowResume) {
+      await this.plugin.onWorkflowResume(this.workspacePath, this.workflowConfig.config, completedNodes);
+    } else if (this.plugin?.onWorkflowStart) {
+      // Fallback: re-run onWorkflowStart (plugin may create directories that already exist)
+      await this.plugin.onWorkflowStart(this.workspacePath, this.workflowConfig.config);
+    }
+
+    // Start signal watcher, pre-populated with known signal IDs
+    this.signalWatcher.prePopulate(signalIds);
+    this.signalWatcher.startRecursive(runDir, (signal, filename) => {
+      this.handleSignal(signal, filename);
+    });
+
+    this.paused = snapshot.paused;
+    this.evaluateReadyNodes();
+    await this.scheduleReadyNodes();
+  }
+
+  private async recoverSignalsFromDisk(runDir: string, signalIds: Set<string>): Promise<void> {
+    const scanDir = async (dir: string) => {
+      let entries;
+      try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await scanDir(fullPath);
+        } else if (entry.name.endsWith('.done.json')) {
+          try {
+            const raw = JSON.parse(await fs.readFile(fullPath, 'utf-8'));
+            const normalized = (await import('./utils.js')).normalizeAgentSignal(raw);
+            const { validateSignalSchema } = await import('./signal-validator.js');
+            if (!validateSignalSchema(normalized)) continue;
+            const signal = normalized as unknown as SignalFile;
+            signalIds.add(signal.signal_id);
+
+            // Find the node this signal belongs to
+            const node = this.findNodeForSignal(signal);
+            if (node) {
+              node.signal = signal;
+              // Update state if node is in a non-terminal state
+              if (!['completed', 'failed', 'skipped'].includes(node.state)) {
+                if (signal.status === 'success' || signal.status === 'branch') {
+                  node.state = 'completed';
+                } else if (signal.status === 'failure' && !signal.error?.recoverable) {
+                  node.state = 'failed';
+                }
+              }
+            }
+          } catch { /* skip unparseable signals */ }
+        }
+      }
+    };
+    await scanDir(runDir);
+  }
+
+  private inferStateFromSignal(signal: SignalFile): string {
+    if (signal.status === 'success' || signal.status === 'branch') return 'completed';
+    if (signal.status === 'failure') return 'failed';
+    if (signal.status === 'budget_exhausted') return 'completed';
+    return 'failed';
   }
 
   async abort(): Promise<void> {
@@ -269,25 +440,41 @@ export class DagExecutor {
   private evaluateDependsOnAll(nodeName: string, depNames: string[]): boolean {
     // All scoped instances of the named nodes must be in a terminal state
     for (const depBase of depNames) {
-      const scopedNodes = [...this.nodes.values()].filter(
+      const allMatchingNodes = [...this.nodes.values()].filter(
         n => n.name === depBase || n.name.startsWith(depBase + '.'),
       );
-      // If no scoped nodes exist yet, check if all upstream is terminal (graceful degradation)
-      if (scopedNodes.length === 0) {
-        const allScopedTerminal = [...this.nodes.values()]
-          .filter(n => n.scope !== null)
-          .every(n => ['completed', 'failed', 'skipped'].includes(n.state));
-        const noScopedNodes = ![...this.nodes.values()].some(n => n.scope !== null);
-        // Graceful degradation: if no scoped nodes were ever created, allow meta_analyst to run
-        if (noScopedNodes) {
+      // Separate scoped instances from the base template node
+      const scopedOnly = allMatchingNodes.filter(n => n.scope !== null);
+      const hasScoped = scopedOnly.length > 0;
+
+      // If scoped instances exist, check ONLY those (ignore the base template node)
+      if (hasScoped) {
+        const allTerminal = scopedOnly.every(
+          n => ['completed', 'failed', 'skipped'].includes(n.state),
+        );
+        if (!allTerminal) return false;
+        continue;
+      }
+
+      // No scoped nodes: graceful degradation
+      if (allMatchingNodes.length === 0) {
+        const anyScopedNodes = [...this.nodes.values()].some(n => n.scope !== null);
+        if (!anyScopedNodes) {
+          // No scoped nodes ever created — allow if all non-pending are terminal
           const allNonPendingTerminal = [...this.nodes.values()]
             .filter(n => n.name !== nodeName && !['pending'].includes(n.state))
             .every(n => ['completed', 'failed', 'skipped'].includes(n.state));
           return allNonPendingTerminal;
         }
+        // Scoped nodes exist elsewhere but not for this dep — check all scoped terminal
+        const allScopedTerminal = [...this.nodes.values()]
+          .filter(n => n.scope !== null)
+          .every(n => ['completed', 'failed', 'skipped'].includes(n.state));
         return allScopedTerminal;
       }
-      const allTerminal = scopedNodes.every(
+
+      // Only base node exists, no scoped — check it directly
+      const allTerminal = allMatchingNodes.every(
         n => ['completed', 'failed', 'skipped'].includes(n.state),
       );
       if (!allTerminal) return false;
@@ -298,7 +485,9 @@ export class DagExecutor {
   private async scheduleReadyNodes(): Promise<void> {
     if (this.paused) return;
     const maxParallel = this.workflowConfig.config.max_parallel_hypotheses ?? Infinity;
+    const maxConcurrent = this.workflowConfig.config.max_concurrent_agents ?? Infinity;
     const readyNodes = [...this.nodes.entries()].filter(([, n]) => n.state === 'ready');
+
     // Count active scopes (distinct sub-DAGs), not individual scoped nodes
     const activeScopes = new Set(
       [...this.nodes.values()]
@@ -306,12 +495,34 @@ export class DagExecutor {
         .map(n => n.scope)
     );
 
+    // Count total active agents (global hard cap)
+    let activeAgents = [...this.nodes.values()]
+      .filter(n => ['spawning', 'running', 'validating'].includes(n.state))
+      .length;
+
     for (const [name, node] of readyNodes) {
-      // Enforce concurrency limit: only block NEW scopes, not nodes within active scopes
+      // Hard cap: never exceed max_concurrent_agents total terminals
+      if (activeAgents >= maxConcurrent) break;
+
+      // Skip base template nodes if scoped versions exist (they'd run with no real task)
+      if (node.scope === null) {
+        const hasScopedVersions = [...this.nodes.values()].some(
+          n => n.scope !== null && n.name.startsWith(node.name + '.'),
+        );
+        if (hasScopedVersions) {
+          node.state = 'completed'; // Mark as completed (no work to do)
+          continue;
+        }
+      }
+
+      // Scope concurrency: only block NEW scopes, not nodes within active scopes
       if (node.scope !== null && !activeScopes.has(node.scope) && activeScopes.size >= maxParallel) {
         continue;
       }
+
       await this.spawnAgent(name);
+      activeAgents++;
+      if (node.scope !== null) activeScopes.add(node.scope);
     }
   }
 
@@ -346,6 +557,17 @@ export class DagExecutor {
     }
 
     const agentName = node.scope ? `${node.name}-${node.scope}` : node.name;
+
+    // Token estimate (~4 chars per token heuristic)
+    const purposeTokens = Math.round(purpose.length / 4);
+    this.eventLog.push({
+      timestamp: Date.now(),
+      runId: this.runId,
+      node: agentName,
+      fromState: 'spawning',
+      toState: 'spawning',
+      event: `purpose_tokens:${purposeTokens}`,
+    });
 
     // Persist purpose for audit trail
     const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
@@ -385,23 +607,32 @@ export class DagExecutor {
     if (session) {
       await session.resize(120, 30);
 
-      // Subscribe to output so the session stays alive
-      session.onData(() => {});
-
-      // Inject purpose prompt after Claude Code has time to start
-      setTimeout(() => {
-        // Set effort level if specified
+      // Wait for Claude Code to be ready (prompt indicator) before injecting purpose.
+      // Falls back to 5s delay if pattern not detected within timeout.
+      const injectPurpose = () => {
         const effort = nodeDef?.effort ?? 'low';
         if (effort === 'low') {
           session.write('/compact\r');
-          // Wait a beat for the command to register
           setTimeout(() => {
             session.write(this.bootstrap.getInjectionPrompt(agentName));
           }, 500);
         } else {
           session.write(this.bootstrap.getInjectionPrompt(agentName));
         }
-      }, 5000);
+      };
+
+      // Wait for Claude Code's input prompt indicator before injecting.
+      // The TUI renders box-drawing chars (U+2500 range) then the input area.
+      // Match on the "bypass permissions" text which appears when Claude Code is ready.
+      waitForOutput(session, /bypass permissions|>\s*$/i, { timeout: 30000 })
+        .then(() => {
+          // Small delay to let the TUI finish rendering after the match
+          setTimeout(() => injectPurpose(), 1000);
+        })
+        .catch(() => {
+          // Timeout: inject anyway (best-effort fallback)
+          injectPurpose();
+        });
     }
 
     // Attach log capture for terminal output
@@ -490,30 +721,54 @@ export class DagExecutor {
   }
 
   private async postCompletion(node: DagNode): Promise<void> {
-    // Check for branch decision — either explicit branch status or success with decision
     const decision = node.signal?.decision;
     const nodeDef = this.workflowConfig.nodes[node.name] ?? this.workflowConfig.nodes[node.name.split('.')[0]];
 
+    // Routing chain: decision.goto -> plugin.onResolveRouting -> branch rules fallback
     if (decision && typeof decision === 'object' && 'goto' in decision) {
-      // Explicit branch decision with goto
+      // 1. Explicit decision.goto from agent
       await this.handleBranchDecision(node);
     } else if (nodeDef?.branch && nodeDef.branch.length > 0) {
-      // Node has branch rules but signal didn't use structured decision.
-      // Try to resolve by looking for approved files or using the first branch target.
-      const firstBranch = nodeDef.branch[0];
-      if (firstBranch.foreach) {
-        // Fan-out: look for approved items in the signal outputs or filesystem
-        await this.autoFanOut(node, firstBranch.goto, firstBranch.foreach);
-      } else if (firstBranch.goto) {
-        // Simple routing to first branch target
-        const target = this.nodes.get(firstBranch.goto);
-        if (target && target.state === 'pending') {
-          target.dependsOn = target.dependsOn.filter(d => d !== node.name);
-          if (target.dependsOn.length === 0) {
-            // No more deps — mark ready
+      // 2. No decision.goto — ask plugin for routing
+      let resolved = false;
+      if (this.plugin?.onResolveRouting && node.signal) {
+        const routing = await this.plugin.onResolveRouting(node.name, node.signal, nodeDef.branch);
+        if (routing) {
+          if (routing.foreach) {
+            const ids = Array.isArray(routing.payload) ? routing.payload as string[] : [];
+            if (ids.length > 0) {
+              for (const id of ids) await this.spawnScopedSubDag(routing.goto, String(id));
+              resolved = true;
+            } else {
+              await this.autoFanOut(node, routing.goto, routing.foreach);
+              resolved = true;
+            }
+          } else {
+            // Plugin gave us a concrete goto target
+            node.signal!.decision = { goto: routing.goto, reason: 'plugin-resolved', payload: routing.payload ?? null };
+            await this.handleBranchDecision(node);
+            resolved = true;
           }
         }
       }
+
+      // 3. Fallback: use branch rules directly
+      if (!resolved) {
+        const firstBranch = nodeDef.branch[0];
+        if (firstBranch.foreach) {
+          await this.autoFanOut(node, firstBranch.goto, firstBranch.foreach);
+        } else if (firstBranch.goto) {
+          const target = this.nodes.get(firstBranch.goto);
+          if (target && target.state === 'pending') {
+            target.dependsOn = target.dependsOn.filter(d => d !== node.name);
+          }
+        }
+      }
+    }
+
+    // Emit finding if this is a reporter node that just completed
+    if (node.name.startsWith('reporter') && node.state === 'completed' && node.scope && this.onFinding) {
+      this.emitFinding(node.scope);
     }
 
     // Decrement sub-DAG counter when scoped terminal nodes complete
@@ -563,13 +818,10 @@ export class DagExecutor {
     // Check signal outputs for an approved file
     if (node.signal?.outputs) {
       for (const output of node.signal.outputs) {
-        const outputPath = output.path.replace(/\\/g, '/');
+        const outputPath = normalizeAgentPath(output.path);
         if (outputPath.includes('approved')) {
           try {
-            let resolvedPath = outputPath;
-            if (resolvedPath.startsWith('.caam/')) resolvedPath = resolvedPath.slice(6);
-            if (resolvedPath.startsWith('shared/')) resolvedPath = resolvedPath;
-            const fullPath = path.join(this.workspacePath, '.caam', resolvedPath);
+            const fullPath = path.join(this.workspacePath, '.caam', outputPath);
             const content = JSON.parse(await fs.readFile(fullPath, 'utf-8'));
             if (content.approved_ids) approvedIds = content.approved_ids;
             else if (Array.isArray(content)) approvedIds = content;
@@ -727,6 +979,69 @@ export class DagExecutor {
 
     if (this.onStateChange) {
       this.onStateChange(this.runId, nodeName, oldState, newState, event, node.terminalId ?? undefined);
+    }
+
+    // Persist snapshot (fire-and-forget, don't block the pipeline)
+    this.persistSnapshot();
+  }
+
+  private snapshotPending = false;
+
+  private persistSnapshot(): void {
+    // Debounce: multiple transitions may happen in the same tick
+    if (this.snapshotPending) return;
+    this.snapshotPending = true;
+    queueMicrotask(() => {
+      this.snapshotPending = false;
+      this.writeSnapshot().catch(() => {});
+    });
+  }
+
+  private async writeSnapshot(): Promise<void> {
+    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    const snapshot: NodeSnapshot[] = [];
+    for (const [key, node] of this.nodes) {
+      snapshot.push({
+        key,
+        name: node.name,
+        preset: node.preset,
+        state: node.state,
+        scope: node.scope,
+        dependsOn: node.dependsOn,
+        retryCount: node.retryCount,
+        maxRetries: node.maxRetries,
+        invocationCount: node.invocationCount,
+        maxInvocations: node.maxInvocations,
+        timeoutMs: node.timeoutMs,
+        signalId: node.signal?.signal_id ?? null,
+        startedAt: node.startedAt,
+      });
+    }
+    await writeJsonAtomic(path.join(runDir, 'node-states.json'), {
+      runId: this.runId,
+      timestamp: Date.now(),
+      paused: this.paused,
+      nodes: snapshot,
+    });
+  }
+
+  private async emitFinding(scope: string): Promise<void> {
+    if (!this.onFinding) return;
+    try {
+      const findingPath = path.join(this.workspacePath, '.caam', 'shared', 'findings', `${scope}-finding.md`);
+      const content = await fs.readFile(findingPath, 'utf-8');
+      this.onFinding(this.runId, scope, content);
+    } catch {
+      // Finding file may not exist yet or have a different name pattern
+      try {
+        const findingsDir = path.join(this.workspacePath, '.caam', 'shared', 'findings');
+        const files = await fs.readdir(findingsDir);
+        const match = files.find(f => f.includes(scope) && f.endsWith('.md'));
+        if (match) {
+          const content = await fs.readFile(path.join(findingsDir, match), 'utf-8');
+          this.onFinding(this.runId, scope, content);
+        }
+      } catch { /* findings dir may not exist */ }
     }
   }
 

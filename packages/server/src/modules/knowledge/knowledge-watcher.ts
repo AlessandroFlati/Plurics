@@ -1,9 +1,9 @@
 import * as path from 'node:path';
-import chokidar from 'chokidar';
+import chokidar, { type FSWatcher } from 'chokidar';
 import type { TerminalRegistry } from '../terminal/terminal-registry.js';
 
 export class KnowledgeWatcher {
-  private watcher: chokidar.FSWatcher | null = null;
+  private watcher: FSWatcher | null = null;
   private readonly registry: TerminalRegistry;
   private cwd: string | null = null;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();

@@ -67,6 +67,12 @@ export class WorkflowRepository {
     ).run(event.run_id, event.node_name, event.from_state, event.to_state, event.event, event.details);
   }
 
+  listResumableRuns(): WorkflowRun[] {
+    return this.db.prepare(
+      `SELECT * FROM workflow_runs WHERE status IN ('running', 'aborted') ORDER BY started_at DESC`
+    ).all() as WorkflowRun[];
+  }
+
   getEvents(runId: string): WorkflowEvent[] {
     return this.db.prepare(
       'SELECT * FROM workflow_events WHERE run_id = ? ORDER BY id ASC'

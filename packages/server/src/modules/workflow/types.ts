@@ -67,6 +67,8 @@ export interface WorkflowConfig {
   config: Record<string, unknown> & {
     agent_timeout_seconds: number;
     max_parallel_hypotheses?: number;
+    /** Hard cap on total concurrent terminals (spawning + running + validating). */
+    max_concurrent_agents?: number;
   };
   shared_context: string;
   nodes: Record<string, WorkflowNodeDef>;
@@ -114,6 +116,31 @@ export interface EventLogEntry {
   fromState: NodeState;
   toState: NodeState;
   event: string;
+}
+
+// --- Node Snapshot (for run resume) ---
+
+export interface NodeSnapshot {
+  key: string;
+  name: string;
+  preset: string;
+  state: NodeState;
+  scope: string | null;
+  dependsOn: string[];
+  retryCount: number;
+  maxRetries: number;
+  invocationCount: number;
+  maxInvocations: number;
+  timeoutMs: number;
+  signalId: string | null;
+  startedAt: number | null;
+}
+
+export interface RunSnapshot {
+  runId: string;
+  timestamp: number;
+  paused: boolean;
+  nodes: NodeSnapshot[];
 }
 
 // --- Signal Filename Parsing ---

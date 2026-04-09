@@ -4,6 +4,9 @@ import { buildSignalFilename } from './utils.js';
 /**
  * Generate a generic purpose.md for an agent.
  * Domain-specific enrichment happens via the plugin's onPurposeGenerate hook.
+ *
+ * The signal protocol instructions are in shared_context (read once per session).
+ * Only the per-agent signal template (with agent name, scope, filename) is injected here.
  */
 export function generatePurpose(
   node: DagNode,
@@ -15,19 +18,19 @@ export function generatePurpose(
   // 1. Role from preset
   sections.push(`# Role: ${node.name}\n\n${presetContent}`);
 
-  // 2. Shared context
+  // 2. Shared context (includes signal protocol instructions)
   if (workflowConfig.shared_context) {
     sections.push(`## Shared Context\n\n${workflowConfig.shared_context}`);
   }
 
   // 3. Scope context
   if (node.scope) {
-    sections.push(`## Your Scope\n\nYou are working on: **${node.scope}**\nRead the relevant files from .caam/shared/ for this scope.`);
+    sections.push(`## Your Scope\n\nYou are working on: **${node.scope}**`);
   }
 
-  // 4. Signal protocol
+  // 4. Per-agent signal template (compact: just the JSON + filename)
   const signalFilename = buildSignalFilename(node);
-  sections.push(generateSignalProtocol(node, signalFilename));
+  sections.push(generateSignalTemplate(node, signalFilename));
 
   // 5. Retry context
   if (node.retryCount > 0 && node.signal?.error) {
@@ -43,54 +46,51 @@ export function generatePurpose(
   return sections.join('\n\n---\n\n');
 }
 
-function generateSignalProtocol(node: DagNode, signalFilename: string): string {
-  const agentName = node.name;
-  const scope = node.scope ? `"${node.scope}"` : 'null';
-
-  return `## Output Protocol (MANDATORY -- follow exactly)
+/**
+ * Signal protocol instructions (generic, goes into shared_context YAML field).
+ * Called once per workflow, not per agent. Export for use by YAML generators.
+ */
+export function getSignalProtocolInstructions(): string {
+  return `## Signal Protocol (ALL agents must follow)
 
 When you complete your task, follow these steps IN ORDER:
 
-### Step 1: Write output files via temp + rename
-For every output file:
-\`\`\`bash
-cat > .caam/{output_path}.tmp << 'FILEEOF'
-{content}
-FILEEOF
-mv .caam/{output_path}.tmp .caam/{output_path}
-\`\`\`
-
-### Step 2: Verify outputs are valid JSON (for .json files)
-\`\`\`bash
-python3 -c "import json; json.load(open('.caam/{output_path}'))"
-\`\`\`
-
-### Step 3: Compute SHA-256 for each output
-\`\`\`bash
-sha256sum .caam/{output_path} | cut -d' ' -f1
-\`\`\`
-
-### Step 4: Write signal file (ALWAYS LAST)
-\`\`\`bash
-cat > .caam/shared/signals/${signalFilename}.tmp << 'SIGEOF'
-{
-  "schema_version": 1,
-  "signal_id": "sig-{ISO8601compact}-${agentName}-{4hex}",
-  "agent": "${agentName}",
-  "scope": ${scope},
-  "status": "{success|failure|branch|budget_exhausted}",
-  "decision": null,
-  "outputs": [{fill_with_sha256_and_size}],
-  "metrics": {"duration_seconds": {N}, "retries_used": ${node.retryCount}},
-  "error": null
-}
-SIGEOF
-mv .caam/shared/signals/${signalFilename}.tmp .caam/shared/signals/${signalFilename}
-\`\`\`
+1. Write output files via temp + rename: \`cat > .caam/{path}.tmp << 'EOF' ... EOF && mv .caam/{path}.tmp .caam/{path}\`
+2. Verify JSON outputs: \`python3 -c "import json; json.load(open('.caam/{path}'))"\`
+3. Compute SHA-256 and size: \`sha256sum .caam/{path} | cut -d' ' -f1\` and \`wc -c < .caam/{path}\`
+4. Write signal file (ALWAYS LAST) using your per-agent template below, via temp + rename.
 
 CRITICAL RULES:
-- NEVER write the signal file before all outputs are written and renamed
-- ALWAYS use the .tmp + mv pattern (atomic rename)
-- ALWAYS compute sha256 AFTER the mv of the output file
-- If you encounter an unrecoverable error, still write a signal with status "failure"`;
+- NEVER write the signal file before all outputs are written
+- ALWAYS use .tmp + mv (atomic rename)
+- Compute sha256 AFTER mv
+- Use EXACT field names: size_bytes (NOT size), outputs[].path relative to .caam/
+- On unrecoverable error, still write a signal with status "failure"`;
+}
+
+function generateSignalTemplate(node: DagNode, signalFilename: string): string {
+  const agentName = node.name;
+
+  const signalTemplate = JSON.stringify({
+    schema_version: 1,
+    signal_id: `sig-YYYYMMDDTHHMMSS-${agentName}-XXXX`,
+    agent: agentName,
+    scope: node.scope ?? null,
+    status: "success",
+    decision: null,
+    outputs: [{ path: "shared/...", sha256: "COMPUTE", size_bytes: 0 }],
+    metrics: { duration_seconds: 0, retries_used: node.retryCount },
+    error: null,
+  }, null, 2);
+
+  return `## Your Signal Template
+
+Signal filename: \`${signalFilename}\`
+Write to: \`.caam/shared/signals/${signalFilename}\` (via .tmp + mv)
+
+\`\`\`json
+${signalTemplate}
+\`\`\`
+
+Replace: YYYYMMDDTHHMMSS with timestamp, XXXX with 4 hex chars, fill outputs/metrics.`;
 }

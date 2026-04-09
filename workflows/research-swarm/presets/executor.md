@@ -8,16 +8,17 @@ limit, verify the result, and update the hypothesis file.
 
 - Script timeout: **{{SCRIPT_TIMEOUT}} seconds**
 
-## Workspace
+## Inputs (PRE-LOADED below -- do NOT cat/read these files)
+
+Hypothesis context and test budget are injected below by the platform.
+Script to execute: `.caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py`
+
+## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py` | Script to run |
-| `.caam/shared/data/test-registry.json` | Shared test budget counter |
-| `.caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json` | Expected output |
+| `.caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json` | Expected output from script |
 | `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Update with result |
-| `.caam/shared/data/signals/executor-{{HYPOTHESIS_ID}}.done` | Signal on success |
-| `.caam/shared/data/signals/budget_exhausted.signal` | Write if budget is 0 |
 
 ## Step-by-step instructions
 

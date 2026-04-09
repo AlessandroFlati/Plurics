@@ -44,12 +44,41 @@ export interface WorkflowPlugin {
   ): boolean | null;
 
   /**
+   * Called when resuming a previously interrupted workflow run.
+   * The plugin should reconstruct any internal state (registries, counters, budgets)
+   * from the artifacts on disk. Called AFTER node states are restored from snapshot,
+   * BEFORE evaluateReadyNodes.
+   */
+  onWorkflowResume?(
+    workspacePath: string,
+    config: Record<string, unknown>,
+    completedNodes: Array<{ name: string; scope: string | null; signal: SignalFile | null }>,
+  ): Promise<void>;
+
+  /**
+   * Called when the platform cannot determine routing from a signal's decision field.
+   * The platform first tries decision.goto; if absent, it calls this hook.
+   * Return a routing instruction or null to fall back to default branch rules.
+   */
+  onResolveRouting?(
+    nodeName: string,
+    signal: SignalFile,
+    branchRules: Array<{ condition: string; goto: string; foreach?: string }>,
+  ): Promise<RoutingResult | null>;
+
+  /**
    * Called when the entire workflow completes.
    */
   onWorkflowComplete?(
     workspacePath: string,
     summary: WorkflowSummary,
   ): Promise<void>;
+}
+
+export interface RoutingResult {
+  goto: string;
+  foreach?: string;
+  payload?: unknown;
 }
 
 export interface SignalOverride {

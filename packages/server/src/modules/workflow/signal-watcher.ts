@@ -1,15 +1,15 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import chokidar from 'chokidar';
+import chokidar, { type FSWatcher } from 'chokidar';
 import type { SignalFile } from './types.js';
 import { validateSignalSchema } from './signal-validator.js';
-import { sleep } from './utils.js';
+import { sleep, normalizeAgentSignal } from './utils.js';
 
 type SignalCallback = (signal: SignalFile, filename: string) => void;
 type ErrorCallback = (type: string, filename: string) => void;
 
 export class SignalWatcher {
-  private watcher: chokidar.FSWatcher | null = null;
+  private watcher: FSWatcher | null = null;
   private processedSignals = new Set<string>();
   private onError: ErrorCallback | null = null;
 
@@ -108,6 +108,13 @@ export class SignalWatcher {
     this.processedSignals.clear();
   }
 
+  /** Pre-populate processed signals from a previous run (for resume). */
+  prePopulate(signalIds: Set<string>): void {
+    for (const id of signalIds) {
+      this.processedSignals.add(id);
+    }
+  }
+
   setErrorHandler(handler: ErrorCallback): void {
     this.onError = handler;
   }
@@ -133,7 +140,11 @@ export class SignalWatcher {
 
     let signal: unknown;
     try {
-      signal = JSON.parse(raw!);
+      const parsed = JSON.parse(raw!);
+      // Normalize LLM output before schema validation (aliases, paths, etc.)
+      signal = (typeof parsed === 'object' && parsed !== null)
+        ? normalizeAgentSignal(parsed as Record<string, unknown>)
+        : parsed;
     } catch {
       this.emitError('signal_parse_failed', filename);
       return;

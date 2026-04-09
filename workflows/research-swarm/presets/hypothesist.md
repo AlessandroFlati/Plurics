@@ -5,14 +5,16 @@ you will produce a batch of {{HYPOTHESES_PER_BATCH}} structured, testable
 hypotheses derived from the profiling report. The adversary and judge will
 review them before any testing occurs.
 
-## Workspace
+## Inputs (PRE-LOADED below -- do NOT cat/read manifest or counter)
+
+Data manifest digest and hypothesis counter are injected below by the platform.
+Findings and rejection-reasons: read from `.caam/shared/findings/` and `.caam/shared/data/audit/*-rejection-reason.md` (rounds 2+).
+
+## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/profiling-report.json` | DataManifest from profiler |
-| `.caam/shared/data/hypothesis-counter.json` | Shared atomic ID counter |
 | `.caam/shared/data/hypotheses/batch-{{ROUND}}.json` | Your output |
-| `.caam/shared/data/signals/` | Signal directory |
 
 ## Step-by-step instructions
 
@@ -30,6 +32,44 @@ Also read any previously rejected hypotheses from earlier rounds so you do not
 repeat them. Look for `batch-*-reviewed.json` files in
 `.caam/shared/data/hypotheses/` and collect any hypotheses with
 `verdict == "reject"`.
+
+**CRITICAL for rounds 2+:** Read all existing findings from `.caam/shared/findings/`
+(files named `H-NNN-finding.md`). These are self-contained reports of what has
+already been discovered. Use them to:
+
+1. **Avoid redundancy** — do not generate hypotheses that test the same relationship
+   already covered by a finding, even with different wording.
+2. **Build on discoveries** — if a finding confirmed a relationship between X and Y,
+   generate hypotheses that explore WHY (causal mechanisms), test related variables
+   (from `manifest["correlations"]`), or check boundary conditions.
+3. **Fill gaps** — if findings cluster around certain variables, target under-explored
+   variables and hypothesis types.
+
+```python
+findings_dir = pathlib.Path(".caam/shared/findings")
+existing_findings = []
+if findings_dir.exists():
+    for f in sorted(findings_dir.glob("*.md")):
+        existing_findings.append({"id": f.stem.replace("-finding", ""), "content": f.read_text()})
+```
+
+Also read **rejection reasons** from `.caam/shared/data/audit/`. These are written
+by the falsifier when a hypothesis fails, and contain a root-cause analysis and
+concrete suggestions for reformulation. **Prioritize these** — they tell you
+exactly what went wrong and how to fix it.
+
+```python
+audit_dir = pathlib.Path(".caam/shared/data/audit")
+rejection_reasons = []
+if audit_dir.exists():
+    for f in sorted(audit_dir.glob("*-rejection-reason.md")):
+        rejection_reasons.append({"id": f.stem.replace("-rejection-reason", ""), "content": f.read_text()})
+```
+
+When generating new hypotheses:
+- For each rejection reason, generate at least one hypothesis that addresses the
+  suggested reformulation (different test, adjusted threshold, different scope).
+- Mark these hypotheses with `"reformulated_from": "H-NNN"` in the schema.
 
 ### 2. Allocate hypothesis IDs
 

@@ -75,6 +75,11 @@ ws.on('message', (raw) => {
       log('WORKFLOW', 'RESUMED');
       break;
 
+    case 'workflow:finding':
+      log('FINDING', `${msg.hypothesisId}: ${msg.content.split('\n').find(l => l.startsWith('## Verdict'))?.replace('## Verdict', '').trim() || '(parsing verdict...)'}`);
+      log('FINDING', `  Content length: ${msg.content.length} chars`);
+      break;
+
     case 'error':
       log('ERROR', msg.message);
       break;
@@ -141,13 +146,13 @@ function printSummary() {
   }
 }
 
-// Safety timeout: 60 minutes
+// Safety timeout: 4 hours
 setTimeout(() => {
-  log('TIMEOUT', 'Test timed out after 60 minutes');
+  log('TIMEOUT', 'Test timed out after 4 hours');
   printSummary();
   ws.close();
   process.exit(1);
-}, 3600000);
+}, 14400000);
 
 // Print periodic status every 30 seconds
 setInterval(() => {

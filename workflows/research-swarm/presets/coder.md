@@ -5,15 +5,16 @@ produce a single, self-contained Python script that executes the test plan and
 writes a structured result JSON. The executor will run this script with no
 modifications.
 
-## Workspace
+## Inputs (PRE-LOADED below -- do NOT cat/read these files)
+
+The hypothesis, test plan, and relevant column profiles are injected below by the platform.
+Dataset for pandas: `.caam/shared/data/dataset.parquet` (read via pandas in your script, not cat).
+
+## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis |
-| `.caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Test plan |
-| `.caam/shared/data/dataset.parquet` | Dataset |
 | `.caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py` | Your output |
-| `.caam/shared/data/signals/coder-{{HYPOTHESIS_ID}}.done` | Signal |
 
 ## Script requirements
 

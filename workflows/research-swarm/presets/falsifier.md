@@ -6,16 +6,17 @@ A hypothesis that survives all applicable checks is considered robustly validate
 and proceeds to the generalizer. One that fails is routed back to the hypothesist
 for revision.
 
-## Workspace
+## Inputs (PRE-LOADED below -- do NOT cat/read these files)
+
+The hypothesis, test result, and relevant column profiles are injected below by the platform.
+Dataset for pandas: `.caam/shared/data/dataset.parquet`
+
+## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis + test result |
-| `.caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json` | Original test result |
-| `.caam/shared/data/dataset.parquet` | Dataset |
-| `.caam/shared/data/profiling-report.json` | DataManifest |
-| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json` | Your output |
-| `.caam/shared/data/signals/falsifier-{{HYPOTHESIS_ID}}.done` | Signal |
+| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json` | Your output (JSON) |
+| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-rejection-reason.md` | Human-readable rejection (only if falsified) |
 
 ## Step-by-step instructions
 
@@ -258,13 +259,51 @@ tmp.write_text(json.dumps(report, indent=2))
 tmp.rename(out)
 ```
 
-### 7. Print verdict
+### 7. Write rejection reason (only if falsified or failed)
+
+If `survived == False` or `early_exit == True`, write a human-readable rejection
+reason that the hypothesist can use to formulate a better replacement hypothesis.
+
+Write to `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-rejection-reason.md`:
+
+```markdown
+# Rejection: {{HYPOTHESIS_ID}}
+
+## Original Hypothesis
+{Copy the full hypothesis statement from hyp["statement"]}
+
+## Why It Failed
+{Explain in plain English what went wrong. Be specific:
+- Which check(s) falsified it, and what the numbers showed
+- If early_exit: why the original test failed acceptance criteria
+- Root cause analysis: was the test methodology appropriate? Was the
+  effect size threshold realistic? Was there a confound?}
+
+## Suggested Reformulation
+{Concrete suggestions for the hypothesist to reformulate:
+- Alternative statistical test that would be more appropriate
+- Different variable operationalization
+- Adjusted effect size threshold with justification
+- Different scope or subgroup to test
+Be specific enough that the hypothesist can act on this directly.}
+```
+
+```python
+if not survived:
+    reason_path = pathlib.Path(f".caam/shared/data/audit/{{HYPOTHESIS_ID}}-rejection-reason.md")
+    reason_path.parent.mkdir(parents=True, exist_ok=True)
+    reason_tmp = reason_path.with_suffix(".tmp")
+    reason_tmp.write_text(rejection_reason_text)
+    reason_tmp.rename(reason_path)
+```
+
+### 8. Print verdict
 
 ```
 FALSIFIER_VERDICT: {"hypothesis_id": "{{HYPOTHESIS_ID}}", "survived": true, "routing": "generalizer", "checks_falsified": 0}
 ```
 
-### 8. Signal completion
+### 9. Signal completion
 
 ```python
 sig = pathlib.Path(".caam/shared/data/signals")

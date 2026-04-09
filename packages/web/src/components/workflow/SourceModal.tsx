@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import type { DataSource } from '../../types';
 import './SourceModal.css';
 
@@ -33,7 +33,6 @@ export function SourceModal({ onAdd, onClose, workspacePath }: SourceModalProps)
   const [sourceType, setSourceType] = useState('local_file');
   const [fields, setFields] = useState<Record<string, unknown>>({});
   const [wsFiles, setWsFiles] = useState<WorkspaceFile[]>([]);
-  const firstInputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
 
   useEffect(() => {
     if (workspacePath) {

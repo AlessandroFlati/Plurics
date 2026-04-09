@@ -5,17 +5,16 @@ survived falsification, you will try to extend its validity by progressively
 relaxing constraints. Stop as soon as a strategy fails; do not continue to
 broader strategies if a narrower one has already failed.
 
-## Workspace
+## Inputs (PRE-LOADED below -- do NOT cat/read these files)
+
+The hypothesis, result, falsification report, and relevant column profiles are injected below.
+Dataset for pandas: `.caam/shared/data/dataset.parquet`
+
+## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis |
-| `.caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json` | Original result |
-| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json` | Falsification report |
-| `.caam/shared/data/dataset.parquet` | Dataset |
-| `.caam/shared/data/profiling-report.json` | DataManifest |
 | `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-generalized.json` | Your output |
-| `.caam/shared/data/signals/generalizer-{{HYPOTHESIS_ID}}.done` | Signal |
 
 ## Step-by-step instructions
 
