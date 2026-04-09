@@ -57,7 +57,7 @@ export function normalizeAgentPath(rawPath: string): string {
  * Resolves when the pattern is found, rejects on timeout.
  */
 export function waitForOutput(
-  session: { onData: (cb: (data: string) => void) => (() => void) },
+  session: { onOutput: (cb: (data: string) => void) => (() => void) },
   pattern: RegExp,
   options: { timeout?: number; pollInterval?: number } = {},
 ): Promise<string> {
@@ -70,7 +70,7 @@ export function waitForOutput(
       reject(new Error(`waitForOutput timed out after ${timeout}ms waiting for ${pattern}`));
     }, timeout);
 
-    const unsub = session.onData((data: string) => {
+    const unsub = session.onOutput((data: string) => {
       buffer += data;
       if (pattern.test(buffer)) {
         clearTimeout(timer);

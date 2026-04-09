@@ -91,6 +91,17 @@ export interface WorkflowNodeDef {
   timeout_seconds?: number;
   model?: 'opus' | 'sonnet' | 'haiku';
   effort?: 'low' | 'medium' | 'high';
+
+  // Agent backend type (default: 'claude-code')
+  backend?: 'claude-code' | 'process' | 'local-llm';
+  // process backend: command to execute
+  command?: string[];
+  // process backend: working directory override
+  working_dir?: string;
+  // local-llm backend: API endpoint
+  endpoint?: string;
+  // local-llm backend: max tokens for completion
+  max_tokens?: number;
 }
 
 // --- State Transitions ---

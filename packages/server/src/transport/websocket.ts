@@ -1,7 +1,7 @@
 import { WebSocketServer, type WebSocket } from 'ws';
 import type http from 'node:http';
 import type { ClientMessage, ServerMessage } from './protocol.js';
-import type { TerminalRegistry } from '../modules/terminal/terminal-registry.js';
+import type { AgentRegistry } from '../modules/terminal/agent-registry.js';
 import type { AgentBootstrap } from '../modules/knowledge/agent-bootstrap.js';
 import type { PresetRepository } from '../db/preset-repository.js';
 import type { WorkflowRepository } from '../db/workflow-repository.js';
@@ -13,7 +13,7 @@ const activeExecutors = new Map<string, DagExecutor>();
 
 export function createWebSocketServer(
   server: http.Server,
-  registry: TerminalRegistry,
+  registry: AgentRegistry,
   bootstrap: AgentBootstrap,
   presetRepo: PresetRepository,
   workflowRepo: WorkflowRepository,
@@ -57,7 +57,7 @@ export function createWebSocketServer(
 async function handleMessage(
   ws: WebSocket,
   msg: ClientMessage,
-  registry: TerminalRegistry,
+  registry: AgentRegistry,
   cleanups: Array<() => void>,
   bootstrap: AgentBootstrap,
   presetRepo: PresetRepository,
@@ -127,13 +127,14 @@ async function handleMessage(
         sendMessage(ws, { type: 'error', message: `Terminal not found: ${msg.terminalId}` });
         return;
       }
-      if (session.isCommandRunning) {
-        const info = session.info;
-        await session.resize(info.cols, info.rows + 1);
-        await session.resize(info.cols, info.rows);
+      // Trigger resize refresh for PTY terminals (forces xterm.js re-render)
+      const termInfo = registry.getTerminalInfo(msg.terminalId);
+      if (termInfo) {
+        await session.resize(termInfo.cols, termInfo.rows + 1);
+        await session.resize(termInfo.cols, termInfo.rows);
       }
 
-      const unsubData = session.onData((data) => {
+      const unsubData = session.onOutput((data: string) => {
         sendMessage(ws, {
           type: 'terminal:output',
           terminalId: msg.terminalId,
@@ -154,7 +155,7 @@ async function handleMessage(
     case 'terminal:list': {
       sendMessage(ws, {
         type: 'terminal:list',
-        terminals: registry.list(),
+        terminals: registry.listTerminals(),
       });
       break;
     }

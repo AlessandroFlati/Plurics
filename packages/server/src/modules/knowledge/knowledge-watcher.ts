@@ -1,14 +1,14 @@
 import * as path from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
-import type { TerminalRegistry } from '../terminal/terminal-registry.js';
+import type { AgentRegistry } from '../terminal/agent-registry.js';
 
 export class KnowledgeWatcher {
   private watcher: FSWatcher | null = null;
-  private readonly registry: TerminalRegistry;
+  private readonly registry: AgentRegistry;
   private cwd: string | null = null;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  constructor(registry: TerminalRegistry) {
+  constructor(registry: AgentRegistry) {
     this.registry = registry;
   }
 

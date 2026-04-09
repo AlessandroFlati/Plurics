@@ -16,7 +16,8 @@ import { generatePurpose } from './purpose-templates.js';
 import { randomHex, writeJsonAtomic, waitForOutput, normalizeAgentPath } from './utils.js';
 import { resolvePresetContent, resolvePlaceholders } from './preset-resolver.js';
 import type { WorkflowPlugin } from './sdk.js';
-import type { TerminalRegistry } from '../terminal/terminal-registry.js';
+import type { AgentRegistry } from '../terminal/agent-registry.js';
+import type { AgentBackend, AgentConfig } from '../terminal/agent-backend.js';
 import type { AgentBootstrap } from '../knowledge/agent-bootstrap.js';
 import type { PresetRepository } from '../../db/preset-repository.js';
 
@@ -37,7 +38,7 @@ export interface WorkflowSummary {
 export class DagExecutor {
   private nodes = new Map<string, DagNode>();
   private readonly signalWatcher: SignalWatcher;
-  private readonly registry: TerminalRegistry;
+  private readonly registry: AgentRegistry;
   private readonly bootstrap: AgentBootstrap;
   private readonly presetRepo: PresetRepository;
   private plugin: WorkflowPlugin | null = null;
@@ -57,7 +58,7 @@ export class DagExecutor {
     workflowConfig: WorkflowConfig,
     workspacePath: string,
     projectRoot: string,
-    registry: TerminalRegistry,
+    registry: AgentRegistry,
     bootstrap: AgentBootstrap,
     presetRepo: PresetRepository,
   ) {
@@ -281,6 +282,45 @@ export class DagExecutor {
       }
     };
     await scanDir(runDir);
+  }
+
+  /**
+   * For process/local-llm backends: convert AgentResult to a signal file on disk,
+   * then let the signal watcher pick it up naturally.
+   */
+  private async generateSignalFromResult(nodeName: string, agentName: string, result: import('../terminal/agent-backend.js').AgentResult): Promise<void> {
+    const node = this.nodes.get(nodeName);
+    if (!node) return;
+
+    const signal: SignalFile = {
+      schema_version: 1,
+      signal_id: `sig-${Date.now()}-${agentName}-${randomHex(2)}`,
+      agent: node.name.split('.')[0], // base agent name
+      scope: node.scope,
+      status: result.success ? 'success' : 'failure',
+      decision: null,
+      outputs: result.artifacts.map(a => ({
+        path: a.path,
+        sha256: 'generated-by-platform',
+        size_bytes: 0,
+      })),
+      metrics: {
+        duration_seconds: result.durationMs / 1000,
+        retries_used: node.retryCount,
+      },
+      error: result.success ? null : {
+        category: result.exitCode !== null ? 'process_exit' : 'backend_error',
+        message: result.error ?? 'Unknown error',
+        recoverable: true,
+      },
+    };
+
+    // Write signal file so the watcher picks it up
+    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    const signalDir = path.join(runDir, 'signals');
+    await fs.mkdir(signalDir, { recursive: true });
+    const filename = `${agentName}.done.json`;
+    await writeJsonAtomic(path.join(signalDir, filename), signal);
   }
 
   private inferStateFromSignal(signal: SignalFile): string {
@@ -582,33 +622,48 @@ export class DagExecutor {
     this.bootstrap.createAgentFiles(agentName, purpose);
     this.bootstrap.regenerateAgentsList(this.registry.listWithPurpose());
 
-    // Build command with model and effort flags from node definition
     const nodeDef = this.workflowConfig.nodes[node.name] ?? this.workflowConfig.nodes[nodeName];
-    const modelMap: Record<string, string> = {
-      opus: 'claude-opus-4-6',
-      sonnet: 'claude-sonnet-4-6',
-      haiku: 'claude-haiku-4-5-20251001',
-    };
-    let command = 'claude --dangerously-skip-permissions';
-    if (nodeDef?.model && modelMap[nodeDef.model]) {
-      command += ` --model ${modelMap[nodeDef.model]}`;
-    }
+    const backendType = nodeDef?.backend ?? 'claude-code';
 
-    const info = await this.registry.spawn({
+    // Build AgentConfig based on backend type
+    const agentConfig: AgentConfig = {
       name: agentName,
       cwd: this.workspacePath,
       purpose,
-      command,
-    });
+      backend: backendType,
+    };
 
-    // Trigger deferred command by sending initial resize
-    // (normally xterm.js does this, but workflow agents may have no UI client)
+    if (backendType === 'claude-code') {
+      const modelMap: Record<string, string> = {
+        opus: 'claude-opus-4-6',
+        sonnet: 'claude-sonnet-4-6',
+        haiku: 'claude-haiku-4-5-20251001',
+      };
+      let command = 'claude --dangerously-skip-permissions';
+      if (nodeDef?.model && modelMap[nodeDef.model]) {
+        command += ` --model ${modelMap[nodeDef.model]}`;
+      }
+      agentConfig.command = command;
+      agentConfig.effort = nodeDef?.effort;
+    } else if (backendType === 'process') {
+      agentConfig.processCommand = nodeDef?.command;
+      agentConfig.workingDir = nodeDef?.working_dir
+        ? resolvePlaceholders(nodeDef.working_dir, { WORKSPACE: this.workspacePath })
+        : undefined;
+    } else if (backendType === 'local-llm') {
+      agentConfig.endpoint = nodeDef?.endpoint;
+      agentConfig.model = nodeDef?.model;
+      agentConfig.maxTokens = nodeDef?.max_tokens;
+    }
+
+    const info = await this.registry.spawn(agentConfig);
     const session = this.registry.get(info.id);
-    if (session) {
+
+    // Backend-specific initialization
+    if (backendType === 'claude-code' && session) {
+      // PTY: trigger deferred command via resize, then wait for readiness
       await session.resize(120, 30);
 
-      // Wait for Claude Code to be ready (prompt indicator) before injecting purpose.
-      // Falls back to 5s delay if pattern not detected within timeout.
       const injectPurpose = () => {
         const effort = nodeDef?.effort ?? 'low';
         if (effort === 'low') {
@@ -621,21 +676,33 @@ export class DagExecutor {
         }
       };
 
-      // Wait for Claude Code's input prompt indicator before injecting.
-      // The TUI renders box-drawing chars (U+2500 range) then the input area.
-      // Match on the "bypass permissions" text which appears when Claude Code is ready.
       waitForOutput(session, /bypass permissions|>\s*$/i, { timeout: 30000 })
-        .then(() => {
-          // Small delay to let the TUI finish rendering after the match
-          setTimeout(() => injectPurpose(), 1000);
-        })
-        .catch(() => {
-          // Timeout: inject anyway (best-effort fallback)
-          injectPurpose();
-        });
+        .then(() => setTimeout(() => injectPurpose(), 1000))
+        .catch(() => injectPurpose());
+
+      // Agent bootstrap files
+      this.bootstrap.setCwd(this.workspacePath);
+      this.bootstrap.createAgentFiles(agentName, purpose);
+      this.bootstrap.regenerateAgentsList(this.registry.listWithPurpose());
+
+    } else if ((backendType === 'process' || backendType === 'local-llm') && session) {
+      // Non-PTY backends: inject purpose directly
+      // For process: purpose is available via CAAM_PURPOSE_FILE env var
+      // For local-llm: purpose is the prompt
+      if (backendType === 'local-llm') {
+        session.inject(purpose);
+      }
+
+      // Generate signal from result when process/llm exits
+      session.onExit(() => {
+        const result = session.getResult();
+        if (result && node.state === 'running') {
+          this.generateSignalFromResult(nodeName, agentName, result);
+        }
+      });
     }
 
-    // Attach log capture for terminal output
+    // Attach log capture
     const logDir = path.join(runDir, 'logs');
     await fs.mkdir(logDir, { recursive: true });
     const logPath = path.join(logDir, `${agentName}.log`);
@@ -655,12 +722,14 @@ export class DagExecutor {
       }
     }, node.timeoutMs);
 
-    // Crash detection
-    this.registry.onTerminalExitById(info.id, () => {
-      if (node.state === 'running') {
-        this.handleCrash(nodeName);
-      }
-    });
+    // Crash/exit detection (for claude-code; process/llm exit is handled above)
+    if (backendType === 'claude-code') {
+      this.registry.onTerminalExitById(info.id, () => {
+        if (node.state === 'running') {
+          this.handleCrash(nodeName);
+        }
+      });
+    }
 
     node.invocationCount++;
   }
