@@ -1,5 +1,5 @@
 {
-  "name": "@caam/server",
+  "name": "@plurics/core",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/app.ts",

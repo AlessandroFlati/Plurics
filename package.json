@@ -1,5 +1,5 @@
 {
-  "name": "claude-agent-auto-manager",
+  "name": "plurics",
   "private": true,
   "workspaces": [
     "packages/*"
