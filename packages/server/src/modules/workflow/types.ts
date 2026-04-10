@@ -66,8 +66,11 @@ export interface WorkflowConfig {
   _yamlPath?: string;
   config: Record<string, unknown> & {
     agent_timeout_seconds: number;
+    /** Scope concurrency: max number of distinct sub-DAG scopes active in parallel. */
+    max_parallel_scopes?: number;
+    /** @deprecated Use max_parallel_scopes. Aliased for backward compatibility. */
     max_parallel_hypotheses?: number;
-    /** Hard cap on total concurrent terminals (spawning + running + validating). */
+    /** Hard cap on total concurrent agents (spawning + running + validating). */
     max_concurrent_agents?: number;
   };
   shared_context: string;

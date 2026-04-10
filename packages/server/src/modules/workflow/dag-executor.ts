@@ -543,7 +543,9 @@ export class DagExecutor {
 
   private async scheduleReadyNodes(): Promise<void> {
     if (this.paused) return;
-    const maxParallel = this.workflowConfig.config.max_parallel_hypotheses ?? Infinity;
+    const maxParallel = this.workflowConfig.config.max_parallel_scopes
+      ?? this.workflowConfig.config.max_parallel_hypotheses
+      ?? Infinity;
     const maxConcurrent = this.workflowConfig.config.max_concurrent_agents ?? Infinity;
     const readyNodes = [...this.nodes.entries()].filter(([, n]) => n.state === 'ready');
 

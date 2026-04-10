@@ -8,7 +8,7 @@ config:
   max_total_tests: 50
   agent_timeout_seconds: 300
   base_significance: 0.05
-  max_parallel_hypotheses: 3
+  max_parallel_scopes: 3
   hypotheses_per_batch: 8
   min_hypotheses_to_proceed: 2
   script_timeout_seconds: 120

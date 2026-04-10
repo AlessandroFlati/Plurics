@@ -8,8 +8,7 @@ config:
   lean_check_timeout_seconds: 180
 
   # Fan-out — limit to 1 because Ollama serializes requests to the same model
-  max_parallel_hypotheses: 1    # Platform scope concurrency (name is historical)
-  max_parallel_theorems: 1       # Plugin-specific (same value for clarity)
+  max_parallel_scopes: 1
   max_concurrent_agents: 4
 
   # Prover self-correction

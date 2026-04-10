@@ -17,6 +17,19 @@ export function parseWorkflow(yamlContent: string): WorkflowConfig {
   // All other config keys are domain-specific and passed through to the plugin.
   assertField(raw.config, 'agent_timeout_seconds', 'number');
 
+  // Deprecation: max_parallel_hypotheses was the original name for scope
+  // concurrency back when the only workflow was research-swarm and scopes
+  // were always hypotheses. The new name (max_parallel_scopes) is domain-
+  // agnostic. Both are accepted for one release; the legacy name is aliased
+  // into the new one with a warning.
+  if (raw.config.max_parallel_hypotheses != null && raw.config.max_parallel_scopes == null) {
+    console.warn(
+      `[plurics] workflow "${raw.name}": "max_parallel_hypotheses" is deprecated, ` +
+      `use "max_parallel_scopes" instead. The old name will be removed in a future release.`
+    );
+    raw.config.max_parallel_scopes = raw.config.max_parallel_hypotheses;
+  }
+
   if (!raw.shared_context) {
     raw.shared_context = '';
   }
