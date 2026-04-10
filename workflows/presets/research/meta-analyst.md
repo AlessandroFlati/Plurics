@@ -9,13 +9,13 @@ importance ranking.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/` | All `H-NNN.json` files |
-| `.caam/shared/data/results/` | All `H-NNN-result.json` files |
-| `.caam/shared/data/audit/` | All `*-falsification.json` and `*-generalized.json` files |
-| `.caam/shared/data/profiling-report.json` | DataManifest |
-| `.caam/shared/data/final-report.json` | Machine-readable output |
-| `.caam/shared/data/final-report.md` | Human-readable output |
-| `.caam/shared/data/signals/meta-analyst.done` | Signal |
+| `.plurics/shared/data/hypotheses/` | All `H-NNN.json` files |
+| `.plurics/shared/data/results/` | All `H-NNN-result.json` files |
+| `.plurics/shared/data/audit/` | All `*-falsification.json` and `*-generalized.json` files |
+| `.plurics/shared/data/profiling-report.json` | DataManifest |
+| `.plurics/shared/data/final-report.json` | Machine-readable output |
+| `.plurics/shared/data/final-report.md` | Human-readable output |
+| `.plurics/shared/data/signals/meta-analyst.done` | Signal |
 
 ## Step-by-step instructions
 
@@ -29,7 +29,7 @@ subprocess.check_call([sys.executable, "-m", "pip", "install",
 
 import pandas as pd, numpy as np
 
-data_dir = pathlib.Path(".caam/shared/data")
+data_dir = pathlib.Path(".plurics/shared/data")
 
 # Load manifest
 manifest = json.loads((data_dir / "profiling-report.json").read_text())

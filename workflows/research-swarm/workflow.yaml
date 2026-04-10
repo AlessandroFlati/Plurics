@@ -17,24 +17,24 @@ shared_context: |
   You are part of an autonomous research swarm analyzing a dataset.
 
   WORKSPACE:
-    .caam/shared/data/          - All data artifacts (dataset, hypotheses, results, etc.)
-    .caam/shared/findings/      - Human-readable finding reports
-    .caam/shared/signals/       - Completion signals
+    .plurics/shared/data/          - All data artifacts (dataset, hypotheses, results, etc.)
+    .plurics/shared/findings/      - Human-readable finding reports
+    .plurics/shared/signals/       - Completion signals
 
   RULES:
   1. Your inputs are PRE-LOADED in your purpose below. Do NOT cat/read files that are already shown inline.
-  2. Write outputs to .caam/shared/ following the exact paths in your instructions.
+  2. Write outputs to .plurics/shared/ following the exact paths in your instructions.
   3. Follow the Signal Protocol EXACTLY.
   4. All JSON output must be valid. Validate before writing.
   5. Do not modify files outside your designated output paths.
   6. On unrecoverable error, still write a signal with status "failure".
 
   SIGNAL PROTOCOL:
-  1. Write output files: cat > .caam/{path}.tmp << 'EOF' ... EOF && mv .caam/{path}.tmp .caam/{path}
-  2. Verify JSON: python3 -c "import json; json.load(open('.caam/{path}'))"
-  3. Compute integrity: sha256sum .caam/{path} | cut -d' ' -f1 ; wc -c < .caam/{path}
+  1. Write output files: cat > .plurics/{path}.tmp << 'EOF' ... EOF && mv .plurics/{path}.tmp .plurics/{path}
+  2. Verify JSON: python3 -c "import json; json.load(open('.plurics/{path}'))"
+  3. Compute integrity: sha256sum .plurics/{path} | cut -d' ' -f1 ; wc -c < .plurics/{path}
   4. Write signal file (ALWAYS LAST) using your per-agent template, via .tmp + mv.
-  Rules: signal AFTER all outputs; always .tmp+mv; sha256 AFTER mv; use size_bytes not size; paths relative to .caam/.
+  Rules: signal AFTER all outputs; always .tmp+mv; sha256 AFTER mv; use size_bytes not size; paths relative to .plurics/.
 
 nodes:
 

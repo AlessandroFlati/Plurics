@@ -10,10 +10,10 @@ shared_context: |
   Your task is to produce a valid signal.
 
   SIGNAL PROTOCOL:
-  1. Write outputs to .caam/shared/ via .tmp + mv
+  1. Write outputs to .plurics/shared/ via .tmp + mv
   2. Verify JSON before writing
   3. Signal file LAST, via .tmp + mv
-  4. Use size_bytes (not size), paths relative to .caam/
+  4. Use size_bytes (not size), paths relative to .plurics/
 
 nodes:
 

@@ -9,11 +9,11 @@ runs the script or the fixer repairs it first.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py` | Script to review |
-| `.caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Test plan |
-| `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis |
-| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-audit.json` | Your output |
-| `.caam/shared/data/signals/auditor-{{HYPOTHESIS_ID}}.done` | Signal |
+| `.plurics/shared/data/scripts/{{HYPOTHESIS_ID}}.py` | Script to review |
+| `.plurics/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Test plan |
+| `.plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis |
+| `.plurics/shared/data/audit/{{HYPOTHESIS_ID}}-audit.json` | Your output |
+| `.plurics/shared/data/signals/auditor-{{HYPOTHESIS_ID}}.done` | Signal |
 
 ## Step-by-step instructions
 
@@ -22,14 +22,14 @@ runs the script or the fixer repairs it first.
 ```python
 import json, pathlib, ast
 
-script_path = pathlib.Path(".caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py")
+script_path = pathlib.Path(".plurics/shared/data/scripts/{{HYPOTHESIS_ID}}.py")
 script_text = script_path.read_text()
 
 plan = json.loads(
-    pathlib.Path(".caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json").read_text()
+    pathlib.Path(".plurics/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json").read_text()
 )
 hyp = json.loads(
-    pathlib.Path(".caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text()
+    pathlib.Path(".plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text()
 )
 ```
 
@@ -59,8 +59,8 @@ Scan the script source (as text and/or AST) for each of the following:
 - If the plan requires `pingouin` or `dowhy`, they must be installed.
 
 #### 3b. File path correctness
-- All paths must start with `.caam/shared/data/`.
-- Result path must be `.caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json`.
+- All paths must start with `.plurics/shared/data/`.
+- Result path must be `.plurics/shared/data/results/{{HYPOTHESIS_ID}}-result.json`.
 - Script must not reference a path that does not exist (other than the result
   path itself, which is created at runtime).
 
@@ -174,7 +174,7 @@ Set `has_bugs = False` only if all issues are `minor` or there are no issues.
 Write atomically:
 
 ```python
-out = pathlib.Path(".caam/shared/data/audit/{{HYPOTHESIS_ID}}-audit.json")
+out = pathlib.Path(".plurics/shared/data/audit/{{HYPOTHESIS_ID}}-audit.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 tmp = out.with_suffix(".tmp")
 tmp.write_text(json.dumps(audit, indent=2))
@@ -190,7 +190,7 @@ AUDIT_VERDICT: {"hypothesis_id": "{{HYPOTHESIS_ID}}", "has_bugs": false, "verdic
 ### 10. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "auditor-{{HYPOTHESIS_ID}}.done").write_text("ok")
 ```

@@ -9,17 +9,17 @@ importance ranking.
 
 A hypothesis summary digest and test registry are injected below by the platform.
 For full details, read specific files from these directories:
-- `.caam/shared/findings/` -- Human-readable finding reports (primary input)
-- `.caam/shared/data/hypotheses/` -- Hypothesis JSON files
-- `.caam/shared/data/results/` -- Result JSON files
-- `.caam/shared/data/audit/` -- Falsification and generalization reports
+- `.plurics/shared/findings/` -- Human-readable finding reports (primary input)
+- `.plurics/shared/data/hypotheses/` -- Hypothesis JSON files
+- `.plurics/shared/data/results/` -- Result JSON files
+- `.plurics/shared/data/audit/` -- Falsification and generalization reports
 
 ## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/final-report.json` | Machine-readable output |
-| `.caam/shared/data/final-report.md` | Human-readable output |
+| `.plurics/shared/data/final-report.json` | Machine-readable output |
+| `.plurics/shared/data/final-report.md` | Human-readable output |
 
 ## Step-by-step instructions
 
@@ -33,8 +33,8 @@ subprocess.check_call([sys.executable, "-m", "pip", "install",
 
 import pandas as pd, numpy as np
 
-data_dir = pathlib.Path(".caam/shared/data")
-findings_dir = pathlib.Path(".caam/shared/findings")
+data_dir = pathlib.Path(".plurics/shared/data")
+findings_dir = pathlib.Path(".plurics/shared/findings")
 
 # Load findings (human-readable summaries -- use these as primary reference)
 finding_files = sorted(findings_dir.glob("H-*-finding.md"))
@@ -290,7 +290,7 @@ tmp.rename(out)
 
 ### 9. Write final-report.md
 
-Use the finding documents from `.caam/shared/findings/` as the basis for the
+Use the finding documents from `.plurics/shared/findings/` as the basis for the
 human-readable report. Each finding document is already a self-contained summary;
 incorporate them directly rather than re-summarizing from JSON.
 

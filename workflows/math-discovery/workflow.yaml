@@ -35,7 +35,7 @@ config:
   min_confirmed_findings_for_backtest: 3
 
   # Lean project
-  lean_project_dir: "{{WORKSPACE}}/.caam/shared/lean-project"
+  lean_project_dir: "{{WORKSPACE}}/.plurics/shared/lean-project"
 
 shared_context: |
   You are part of an autonomous mathematical discovery pipeline analyzing
@@ -43,27 +43,27 @@ shared_context: |
   properties.
 
   WORKSPACE:
-    .caam/shared/data/tables/            - OHLC Parquet files per symbol/timeframe
-    .caam/shared/data/profile.json       - Statistical data profile
-    .caam/shared/data/conjectures/       - Conjecture JSON files (C-NNN.json)
-    .caam/shared/lean-project/           - Incremental Lean 4 project with proofs
-    .caam/shared/findings/               - Human-readable finding reports
-    .caam/shared/signals/                - Completion signals
-    .caam/shared/pool-state.json         - Evolutionary pool snapshot
+    .plurics/shared/data/tables/            - OHLC Parquet files per symbol/timeframe
+    .plurics/shared/data/profile.json       - Statistical data profile
+    .plurics/shared/data/conjectures/       - Conjecture JSON files (C-NNN.json)
+    .plurics/shared/lean-project/           - Incremental Lean 4 project with proofs
+    .plurics/shared/findings/               - Human-readable finding reports
+    .plurics/shared/signals/                - Completion signals
+    .plurics/shared/pool-state.json         - Evolutionary pool snapshot
 
   RULES:
   1. Your inputs are PRE-LOADED in your purpose below. Do NOT cat/read files already shown inline.
-  2. Write outputs to .caam/shared/ following the exact paths in your instructions.
+  2. Write outputs to .plurics/shared/ following the exact paths in your instructions.
   3. Follow the Signal Protocol EXACTLY.
   4. All JSON output must be valid. Validate before writing.
   5. On unrecoverable error, still write a signal with status "failure".
 
   SIGNAL PROTOCOL:
-  1. Write output files: cat > .caam/{path}.tmp << 'EOF' ... EOF && mv .caam/{path}.tmp .caam/{path}
-  2. Verify JSON: python3 -c "import json; json.load(open('.caam/{path}'))"
-  3. Compute integrity: sha256sum .caam/{path} | cut -d' ' -f1 ; wc -c < .caam/{path}
+  1. Write output files: cat > .plurics/{path}.tmp << 'EOF' ... EOF && mv .plurics/{path}.tmp .plurics/{path}
+  2. Verify JSON: python3 -c "import json; json.load(open('.plurics/{path}'))"
+  3. Compute integrity: sha256sum .plurics/{path} | cut -d' ' -f1 ; wc -c < .plurics/{path}
   4. Write signal file (ALWAYS LAST) using your per-agent template, via .tmp + mv.
-  Rules: signal AFTER all outputs; always .tmp+mv; sha256 AFTER mv; use size_bytes; paths relative to .caam/.
+  Rules: signal AFTER all outputs; always .tmp+mv; sha256 AFTER mv; use size_bytes; paths relative to .plurics/.
 
 # ===========================================================================
 # PHASE A — Empirical Discovery

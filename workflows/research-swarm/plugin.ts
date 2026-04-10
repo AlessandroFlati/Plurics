@@ -170,7 +170,7 @@ async function computeFalsifierHandoff(sharedDir: string, signal: SignalFile): P
 const plugin: WorkflowPlugin = {
 
   async onWorkflowStart(workspacePath: string, config: Record<string, unknown>): Promise<void> {
-    const sharedDir = path.join(workspacePath, '.caam', 'shared');
+    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
 
     await writeJsonAtomic(
       path.join(sharedDir, 'test-registry.json'),
@@ -195,7 +195,7 @@ const plugin: WorkflowPlugin = {
 
   async onWorkflowResume(workspacePath: string, config: Record<string, unknown>, completedNodes: Array<{ name: string; scope: string | null; signal: SignalFile | null }>): Promise<void> {
     // Reconstruct test registry from completed executor signals
-    const sharedDir = path.join(workspacePath, '.caam', 'shared');
+    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
     const registryPath = path.join(sharedDir, 'test-registry.json');
 
     // If registry already exists on disk, use it (it was persisted during the original run)
@@ -220,7 +220,7 @@ const plugin: WorkflowPlugin = {
 
   async onSignalReceived(nodeName: string, signal: SignalFile, workspacePath: string): Promise<SignalOverride | null> {
     const agentBase = nodeName.split('.')[0];
-    const sharedDir = path.join(workspacePath, '.caam', 'shared');
+    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
 
     // Compute handoffs for downstream agents
     if (agentBase === 'executor' && signal.status === 'success') {
@@ -246,7 +246,7 @@ const plugin: WorkflowPlugin = {
   },
 
   async onPurposeGenerate(nodeName: string, basePurpose: string, context: PurposeContext): Promise<string> {
-    const sharedDir = path.join(context.workspacePath, '.caam', 'shared');
+    const sharedDir = path.join(context.workspacePath, '.plurics', 'shared');
     const dataDir = path.join(sharedDir, 'data');
     const sections: string[] = [basePurpose];
     const agentBase = nodeName.split('.')[0];
@@ -326,7 +326,7 @@ const plugin: WorkflowPlugin = {
             if (plan) sections.push(`## Test Plan\n\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\``);
             if (hyp) sections.push(`## Hypothesis\n\n\`\`\`json\n${JSON.stringify(hyp, null, 2)}\n\`\`\``);
             // Tier 3: script path (auditor reads it itself)
-            sections.push(`\nScript to audit: .caam/shared/data/scripts/${scope}.py`);
+            sections.push(`\nScript to audit: .plurics/shared/data/scripts/${scope}.py`);
           }
           break;
         }
@@ -340,7 +340,7 @@ const plugin: WorkflowPlugin = {
             const plan = await readJsonSafe(path.join(dataDir, 'test-plans', `${scope}-plan.json`));
             if (plan) sections.push(`## Test Plan\n\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\``);
             // Tier 3: script path
-            sections.push(`\nScript to fix: .caam/shared/data/scripts/${scope}.py`);
+            sections.push(`\nScript to fix: .plurics/shared/data/scripts/${scope}.py`);
           }
           break;
         }
@@ -353,7 +353,7 @@ const plugin: WorkflowPlugin = {
               sections.push(`## Hypothesis: ${hyp.title ?? scope}\nVariables: ${extractVariableNames(hyp).join(', ')}`);
             }
             // Tier 3: script path (executor runs it)
-            sections.push(`\nScript to execute: .caam/shared/data/scripts/${scope}.py`);
+            sections.push(`\nScript to execute: .plurics/shared/data/scripts/${scope}.py`);
           }
           break;
         }
@@ -371,7 +371,7 @@ const plugin: WorkflowPlugin = {
             const manifest = await readJsonSafe(path.join(sharedDir, 'profiling-report.json'));
             if (manifest && hyp) sections.push(digestRelevantColumns(manifest, hyp));
             // Tier 3: data reference
-            sections.push(`\nDataset: .caam/shared/data/dataset.parquet`);
+            sections.push(`\nDataset: .plurics/shared/data/dataset.parquet`);
           }
           break;
         }
@@ -389,7 +389,7 @@ const plugin: WorkflowPlugin = {
             // Tier 2: relevant columns
             const manifest = await readJsonSafe(path.join(sharedDir, 'profiling-report.json'));
             if (manifest && hyp) sections.push(digestRelevantColumns(manifest, hyp));
-            sections.push(`\nDataset: .caam/shared/data/dataset.parquet`);
+            sections.push(`\nDataset: .plurics/shared/data/dataset.parquet`);
           }
           break;
         }
@@ -449,9 +449,9 @@ const plugin: WorkflowPlugin = {
           if (registry) sections.push(`## Test Registry\n\nBudget: ${registry.budget}, Executed: ${registry.tests_executed}, Threshold: ${registry.significance_threshold_current}`);
 
           // Tier 3: full files as reference
-          sections.push(`\nFull hypotheses: .caam/shared/data/hypotheses/`);
-          sections.push(`Full results: .caam/shared/data/results/`);
-          sections.push(`Findings: .caam/shared/findings/`);
+          sections.push(`\nFull hypotheses: .plurics/shared/data/hypotheses/`);
+          sections.push(`Full results: .plurics/shared/data/results/`);
+          sections.push(`Findings: .plurics/shared/findings/`);
           break;
         }
       }
@@ -495,14 +495,14 @@ export default plugin;
 // ========== RESEARCH-DOMAIN HELPERS ==========
 
 async function updateTestRegistry(workspacePath: string, signal: SignalFile): Promise<void> {
-  const registryPath = path.join(workspacePath, '.caam', 'shared', 'test-registry.json');
+  const registryPath = path.join(workspacePath, '.plurics', 'shared', 'test-registry.json');
   const registry = await readJson(registryPath);
 
   const resultOutput = signal.outputs.find(o => o.path.includes('result'));
   if (!resultOutput) return;
 
   let resultPath = resultOutput.path;
-  if (!resultPath.startsWith('.caam/')) resultPath = path.join('.caam', resultPath);
+  if (!resultPath.startsWith('.plurics/')) resultPath = path.join('.plurics', resultPath);
   const result = await readJsonSafe(path.join(workspacePath, resultPath));
   if (!result) return;
 

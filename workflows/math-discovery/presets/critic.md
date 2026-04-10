@@ -13,8 +13,8 @@ The conjecture batch and a data manifest digest are injected above.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/reviews/round-{{ROUND}}-reviews.json` | CriticReview[] |
-| `.caam/shared/data/signals/critic-round-{{ROUND}}.done.json` | Signal |
+| `.plurics/shared/data/reviews/round-{{ROUND}}-reviews.json` | CriticReview[] |
+| `.plurics/shared/data/signals/critic-round-{{ROUND}}.done.json` | Signal |
 
 ## Review Schema (per conjecture)
 

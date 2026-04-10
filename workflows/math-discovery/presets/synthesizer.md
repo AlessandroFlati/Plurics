@@ -12,9 +12,9 @@ A pool summary digest and the Phase C gate status are injected above.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/findings/round-{{ROUND}}-synthesis.md` | Cross-conjecture analysis |
-| `.caam/shared/data/audit/synthesis-{{ROUND}}.json` | Machine-readable summary |
-| `.caam/shared/data/signals/synthesizer-{{ROUND}}.done.json` | Signal with gate decision |
+| `.plurics/shared/findings/round-{{ROUND}}-synthesis.md` | Cross-conjecture analysis |
+| `.plurics/shared/data/audit/synthesis-{{ROUND}}.json` | Machine-readable summary |
+| `.plurics/shared/data/signals/synthesizer-{{ROUND}}.done.json` | Signal with gate decision |
 
 ## Analysis Steps
 

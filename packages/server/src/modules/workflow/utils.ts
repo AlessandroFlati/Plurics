@@ -1,5 +1,7 @@
 import { randomBytes, createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import * as fsSync from 'node:fs';
+import * as path from 'node:path';
 import type { DagNode } from './types.js';
 
 export async function writeJsonAtomic(filepath: string, data: unknown): Promise<void> {
@@ -39,14 +41,43 @@ export async function fileExists(filepath: string): Promise<boolean> {
 }
 
 /**
+ * Platform directory name inside each workspace.
+ * Historically ".caam/", renamed to ".plurics/" post-rebrand.
+ */
+export const PLURICS_DIR = '.plurics';
+export const LEGACY_DIR = '.caam';
+
+/**
+ * Resolve a workspace-relative path inside the platform directory.
+ * Prefers `.plurics/...`; if that does not exist on disk but `.caam/...`
+ * does, returns the legacy path. Use this when READING artifacts from
+ * potentially-migrated workspaces.
+ *
+ * For writes, always use `.plurics/` directly.
+ */
+export function resolvePluricsPath(workspacePath: string, ...segments: string[]): string {
+  const modernPath = path.join(workspacePath, PLURICS_DIR, ...segments);
+  if (fsSync.existsSync(modernPath)) return modernPath;
+  const legacyPath = path.join(workspacePath, LEGACY_DIR, ...segments);
+  if (fsSync.existsSync(legacyPath)) return legacyPath;
+  return modernPath;
+}
+
+/**
  * Normalize a path written by an LLM agent.
- * Strips duplicate .caam/ prefix, converts backslashes to forward slashes.
- * Use this everywhere an agent-written path is consumed by the platform.
+ * Strips duplicate .plurics/ or .caam/ prefix (legacy), converts backslashes
+ * to forward slashes. Use this everywhere an agent-written path is consumed
+ * by the platform.
+ *
+ * The .caam/ prefix is accepted for backward compatibility: presets authored
+ * before the rename may still instruct agents to write to .caam/..., and
+ * in-flight runs across the migration boundary must not break.
  */
 export function normalizeAgentPath(rawPath: string): string {
   let p = rawPath.replace(/\\/g, '/');
-  // Strip leading .caam/ — the caller will prepend it
-  if (p.startsWith('.caam/')) p = p.slice(6);
+  // Strip leading .plurics/ (current) or .caam/ (legacy) — the caller will prepend it
+  if (p.startsWith('.plurics/')) p = p.slice(9);
+  else if (p.startsWith('.caam/')) p = p.slice(6);
   // Strip leading / if any
   if (p.startsWith('/')) p = p.slice(1);
   return p;

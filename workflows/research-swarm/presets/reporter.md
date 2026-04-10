@@ -13,7 +13,7 @@ All artifacts for this hypothesis (hypothesis, result, falsification, generaliza
 
 | Path | Description |
 |---|---|
-| `.caam/shared/findings/{{HYPOTHESIS_ID}}-finding.md` | **Your output** |
+| `.plurics/shared/findings/{{HYPOTHESIS_ID}}-finding.md` | **Your output** |
 
 ## Instructions
 
@@ -22,7 +22,7 @@ All artifacts for this hypothesis (hypothesis, result, falsification, generaliza
 ```python
 import json, pathlib
 
-base = pathlib.Path(".caam/shared/data")
+base = pathlib.Path(".plurics/shared/data")
 
 hyp = json.loads((base / "hypotheses" / "{{HYPOTHESIS_ID}}.json").read_text())
 result = json.loads((base / "results" / "{{HYPOTHESIS_ID}}-result.json").read_text())
@@ -48,7 +48,7 @@ except FileNotFoundError:
 
 ### 2. Write the finding document
 
-Write a markdown file to `.caam/shared/findings/{{HYPOTHESIS_ID}}-finding.md` with this structure:
+Write a markdown file to `.plurics/shared/findings/{{HYPOTHESIS_ID}}-finding.md` with this structure:
 
 ```markdown
 # Finding: {{HYPOTHESIS_ID}}
@@ -103,7 +103,7 @@ measures like abundance."}
 ### 3. Write atomically
 
 ```python
-out = pathlib.Path(".caam/shared/findings/{{HYPOTHESIS_ID}}-finding.md")
+out = pathlib.Path(".plurics/shared/findings/{{HYPOTHESIS_ID}}-finding.md")
 out.parent.mkdir(parents=True, exist_ok=True)
 tmp = out.with_suffix(".tmp")
 tmp.write_text(finding_text)

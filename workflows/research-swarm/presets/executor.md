@@ -11,14 +11,14 @@ limit, verify the result, and update the hypothesis file.
 ## Inputs (PRE-LOADED below -- do NOT cat/read these files)
 
 Hypothesis context and test budget are injected below by the platform.
-Script to execute: `.caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py`
+Script to execute: `.plurics/shared/data/scripts/{{HYPOTHESIS_ID}}.py`
 
 ## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json` | Expected output from script |
-| `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Update with result |
+| `.plurics/shared/data/results/{{HYPOTHESIS_ID}}-result.json` | Expected output from script |
+| `.plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Update with result |
 
 ## Step-by-step instructions
 
@@ -27,7 +27,7 @@ Script to execute: `.caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py`
 ```python
 import json, pathlib
 
-registry_path = pathlib.Path(".caam/shared/data/test-registry.json")
+registry_path = pathlib.Path(".plurics/shared/data/test-registry.json")
 
 if not registry_path.exists():
     registry = {"max_total_tests": 50, "tests_run": 0, "tests_remaining": 50, "log": []}
@@ -36,7 +36,7 @@ else:
     registry = json.loads(registry_path.read_text())
 
 if registry["tests_remaining"] <= 0:
-    sig = pathlib.Path(".caam/shared/data/signals/budget_exhausted.signal")
+    sig = pathlib.Path(".plurics/shared/data/signals/budget_exhausted.signal")
     sig.parent.mkdir(parents=True, exist_ok=True)
     sig.write_text(json.dumps({
         "hypothesis_id": "{{HYPOTHESIS_ID}}",
@@ -68,7 +68,7 @@ remains when running concurrently.
 ### 3. Verify the script exists
 
 ```python
-script_path = pathlib.Path(".caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py")
+script_path = pathlib.Path(".plurics/shared/data/scripts/{{HYPOTHESIS_ID}}.py")
 if not script_path.exists():
     raise FileNotFoundError(f"Script not found: {script_path}")
 ```
@@ -101,7 +101,7 @@ except subprocess.TimeoutExpired as te:
 ### 5. Verify the result file
 
 ```python
-result_path = pathlib.Path(".caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json")
+result_path = pathlib.Path(".plurics/shared/data/results/{{HYPOTHESIS_ID}}-result.json")
 
 if result_path.exists():
     try:
@@ -139,7 +139,7 @@ if exit_code != 0 or not result_valid:
 ### 7. Update hypothesis file with test result
 
 ```python
-hyp_path = pathlib.Path(".caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json")
+hyp_path = pathlib.Path(".plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json")
 hyp = json.loads(hyp_path.read_text())
 
 hyp["test_result"] = {
@@ -168,7 +168,7 @@ EXECUTOR_RESULT: {"hypothesis_id": "{{HYPOTHESIS_ID}}", "exit_code": 0, "elapsed
 ### 9. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "executor-{{HYPOTHESIS_ID}}.done").write_text("ok")
 print("EXECUTOR_SIGNAL: success")

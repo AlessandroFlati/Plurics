@@ -7,41 +7,41 @@ const COMMUNICATION_TEMPLATE = `
 ## Communication
 
 To see which agents are available, read:
-  .caam/shared/agents.md
+  .plurics/shared/agents.md
 
 To send a message to another agent, append to:
-  .caam/agents/<target-name>/inbox.md
+  .plurics/agents/<target-name>/inbox.md
 
 Use this format:
   ## From: <your-name> @ <timestamp>
   <message body>
 
-Your inbox is at .caam/agents/<your-name>/inbox.md
+Your inbox is at .plurics/agents/<your-name>/inbox.md
 Check it when notified.
 `;
 
 export class AgentBootstrap {
-  private caamDir: string | null = null;
+  private pluricsDir: string | null = null;
 
   setCwd(cwd: string): void {
-    this.caamDir = path.join(cwd, '.caam');
+    this.pluricsDir = path.join(cwd, '.plurics');
   }
 
-  getCaamDir(): string | null {
-    return this.caamDir;
+  getPluricsDir(): string | null {
+    return this.pluricsDir;
   }
 
   ensureDirectoryStructure(): void {
-    if (!this.caamDir) return;
-    fs.mkdirSync(path.join(this.caamDir, 'shared'), { recursive: true });
-    fs.mkdirSync(path.join(this.caamDir, 'agents'), { recursive: true });
+    if (!this.pluricsDir) return;
+    fs.mkdirSync(path.join(this.pluricsDir, 'shared'), { recursive: true });
+    fs.mkdirSync(path.join(this.pluricsDir, 'agents'), { recursive: true });
   }
 
   createAgentFiles(agentName: string, purpose: string): void {
-    if (!this.caamDir) return;
+    if (!this.pluricsDir) return;
     this.ensureDirectoryStructure();
 
-    const agentDir = path.join(this.caamDir, 'agents', agentName);
+    const agentDir = path.join(this.pluricsDir, 'agents', agentName);
     fs.mkdirSync(agentDir, { recursive: true });
 
     const fullPurpose = purpose.trim() + '\n' + COMMUNICATION_TEMPLATE;
@@ -54,7 +54,7 @@ export class AgentBootstrap {
   }
 
   regenerateAgentsList(activeAgents: Array<{ name: string; purpose: string }>): void {
-    if (!this.caamDir) return;
+    if (!this.pluricsDir) return;
     this.ensureDirectoryStructure();
 
     let content = '# Active Agents\n';
@@ -63,10 +63,10 @@ export class AgentBootstrap {
       content += `\n## ${agent.name}\n- **Status**: running\n- **Purpose**: ${summary}\n`;
     }
 
-    fs.writeFileSync(path.join(this.caamDir, 'shared', 'agents.md'), content, 'utf-8');
+    fs.writeFileSync(path.join(this.pluricsDir, 'shared', 'agents.md'), content, 'utf-8');
   }
 
   getInjectionPrompt(agentName: string): string {
-    return `Read your purpose and instructions at .caam/agents/${agentName}/purpose.md and follow them.\r`;
+    return `Read your purpose and instructions at .plurics/agents/${agentName}/purpose.md and follow them.\r`;
   }
 }

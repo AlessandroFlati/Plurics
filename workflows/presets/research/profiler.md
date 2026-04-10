@@ -9,10 +9,10 @@ hypothesis counter.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/dataset.parquet` | Input (written by ingestor) |
-| `.caam/shared/data/profiling-report.json` | Your primary output |
-| `.caam/shared/data/hypothesis-counter.json` | Initialise to `{"next_id": 1}` |
-| `.caam/shared/data/signals/profiler.done` | Write when finished |
+| `.plurics/shared/data/dataset.parquet` | Input (written by ingestor) |
+| `.plurics/shared/data/profiling-report.json` | Your primary output |
+| `.plurics/shared/data/hypothesis-counter.json` | Initialise to `{"next_id": 1}` |
+| `.plurics/shared/data/signals/profiler.done` | Write when finished |
 
 ## Step-by-step instructions
 
@@ -24,7 +24,7 @@ subprocess.check_call([sys.executable, "-m", "pip", "install",
                        "pandas", "pyarrow", "scipy", "numpy", "--quiet"])
 
 import pandas as pd, numpy as np
-df = pd.read_parquet(".caam/shared/data/dataset.parquet")
+df = pd.read_parquet(".plurics/shared/data/dataset.parquet")
 ```
 
 ### 2. Per-column profiles
@@ -142,7 +142,7 @@ Assemble the full DataManifest:
   "schema_version": "1.0",
   "generated_at": "<ISO-8601 timestamp>",
   "dataset": {
-    "path": ".caam/shared/data/dataset.parquet",
+    "path": ".plurics/shared/data/dataset.parquet",
     "rows": 1000,
     "columns": 42
   },
@@ -159,7 +159,7 @@ Write atomically:
 ```python
 import json, pathlib, tempfile
 
-out = pathlib.Path(".caam/shared/data/profiling-report.json")
+out = pathlib.Path(".plurics/shared/data/profiling-report.json")
 tmp = out.with_suffix(".tmp")
 tmp.write_text(json.dumps(report, indent=2, default=str))
 tmp.rename(out)
@@ -168,7 +168,7 @@ tmp.rename(out)
 ### 8. Initialise hypothesis counter
 
 ```python
-counter_path = pathlib.Path(".caam/shared/data/hypothesis-counter.json")
+counter_path = pathlib.Path(".plurics/shared/data/hypothesis-counter.json")
 if not counter_path.exists():
     counter_path.write_text(json.dumps({"next_id": 1}, indent=2))
 ```
@@ -178,7 +178,7 @@ Only write if the file does not already exist, to avoid resetting across rounds.
 ### 9. Signal completion
 
 ```python
-signals = pathlib.Path(".caam/shared/data/signals")
+signals = pathlib.Path(".plurics/shared/data/signals")
 signals.mkdir(exist_ok=True)
 (signals / "profiler.done").write_text("ok")
 ```

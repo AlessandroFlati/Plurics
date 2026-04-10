@@ -55,16 +55,16 @@ export function getSignalProtocolInstructions(): string {
 
 When you complete your task, follow these steps IN ORDER:
 
-1. Write output files via temp + rename: \`cat > .caam/{path}.tmp << 'EOF' ... EOF && mv .caam/{path}.tmp .caam/{path}\`
-2. Verify JSON outputs: \`python3 -c "import json; json.load(open('.caam/{path}'))"\`
-3. Compute SHA-256 and size: \`sha256sum .caam/{path} | cut -d' ' -f1\` and \`wc -c < .caam/{path}\`
+1. Write output files via temp + rename: \`cat > .plurics/{path}.tmp << 'EOF' ... EOF && mv .plurics/{path}.tmp .plurics/{path}\`
+2. Verify JSON outputs: \`python3 -c "import json; json.load(open('.plurics/{path}'))"\`
+3. Compute SHA-256 and size: \`sha256sum .plurics/{path} | cut -d' ' -f1\` and \`wc -c < .plurics/{path}\`
 4. Write signal file (ALWAYS LAST) using your per-agent template below, via temp + rename.
 
 CRITICAL RULES:
 - NEVER write the signal file before all outputs are written
 - ALWAYS use .tmp + mv (atomic rename)
 - Compute sha256 AFTER mv
-- Use EXACT field names: size_bytes (NOT size), outputs[].path relative to .caam/
+- Use EXACT field names: size_bytes (NOT size), outputs[].path relative to .plurics/
 - On unrecoverable error, still write a signal with status "failure"`;
 }
 
@@ -86,7 +86,7 @@ function generateSignalTemplate(node: DagNode, signalFilename: string): string {
   return `## Your Signal Template
 
 Signal filename: \`${signalFilename}\`
-Write to: \`.caam/shared/signals/${signalFilename}\` (via .tmp + mv)
+Write to: \`.plurics/shared/signals/${signalFilename}\` (via .tmp + mv)
 
 \`\`\`json
 ${signalTemplate}

@@ -129,7 +129,7 @@ export class DagExecutor {
 
     // Watch the entire run directory recursively for signal files
     // (agents may write to signals/, data/signals/, or other subdirectories)
-    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
     this.signalWatcher.startRecursive(runDir, (signal, filename) => {
       this.handleSignal(signal, filename);
     });
@@ -154,10 +154,10 @@ export class DagExecutor {
     this.startedAt = Date.now();
     this.bootstrap.setCwd(this.workspacePath);
 
-    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
 
     // Ensure shared symlink points to this run
-    const sharedLink = path.join(this.workspacePath, '.caam', 'shared');
+    const sharedLink = path.join(this.workspacePath, '.plurics', 'shared');
     try { await fs.unlink(sharedLink); } catch { /* may not exist */ }
     try {
       await fs.symlink(runDir, sharedLink, 'junction');
@@ -335,7 +335,7 @@ export class DagExecutor {
     };
 
     // Write signal file so the watcher picks it up
-    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
     const signalDir = path.join(runDir, 'signals');
     await fs.mkdir(signalDir, { recursive: true });
     const filename = `${agentName}.done.json`;
@@ -383,17 +383,17 @@ export class DagExecutor {
 
   private async initializeRunDirectory(inputManifest: import('./input-types.js').InputManifest | null | undefined): Promise<void> {
     // Create run-isolated directory
-    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
     for (const dir of ['purposes', 'logs', 'signals']) {
       await fs.mkdir(path.join(runDir, dir), { recursive: true });
     }
 
     // Shared data directory (persists across runs)
-    const dataDir = path.join(this.workspacePath, '.caam', 'data');
+    const dataDir = path.join(this.workspacePath, '.plurics', 'data');
     await fs.mkdir(dataDir, { recursive: true });
 
-    // Point .caam/shared symlink to this run
-    const sharedLink = path.join(this.workspacePath, '.caam', 'shared');
+    // Point .plurics/shared symlink to this run
+    const sharedLink = path.join(this.workspacePath, '.plurics', 'shared');
     try { await fs.unlink(sharedLink); } catch { /* may not exist */ }
     try {
       await fs.symlink(runDir, sharedLink, 'junction');
@@ -631,14 +631,14 @@ export class DagExecutor {
     });
 
     // Persist purpose for audit trail
-    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
     const purposeFilename = node.retryCount > 0
       ? `${agentName}.retry-${node.retryCount}.md`
       : `${agentName}.md`;
     await fs.mkdir(path.join(runDir, 'purposes'), { recursive: true });
     await fs.writeFile(path.join(runDir, 'purposes', purposeFilename), purpose, 'utf-8');
 
-    // Create agent files (.caam/agents/<name>/purpose.md + inbox.md)
+    // Create agent files (.plurics/agents/<name>/purpose.md + inbox.md)
     this.bootstrap.setCwd(this.workspacePath);
     this.bootstrap.createAgentFiles(agentName, purpose);
     this.bootstrap.regenerateAgentsList(this.registry.listWithPurpose());
@@ -917,7 +917,7 @@ export class DagExecutor {
         const outputPath = normalizeAgentPath(output.path);
         if (outputPath.includes('approved')) {
           try {
-            const fullPath = path.join(this.workspacePath, '.caam', outputPath);
+            const fullPath = path.join(this.workspacePath, '.plurics', outputPath);
             const content = JSON.parse(await fs.readFile(fullPath, 'utf-8'));
             if (content.approved_ids) approvedIds = content.approved_ids;
             else if (Array.isArray(content)) approvedIds = content;
@@ -929,7 +929,7 @@ export class DagExecutor {
     // Fallback: scan filesystem for approved-*.json
     if (approvedIds.length === 0) {
       try {
-        const sharedDir = path.join(this.workspacePath, '.caam', 'shared');
+        const sharedDir = path.join(this.workspacePath, '.plurics', 'shared');
         const hypothesesDirs = ['data/hypotheses', 'hypotheses'];
         for (const dir of hypothesesDirs) {
           const fullDir = path.join(sharedDir, dir);
@@ -1094,7 +1094,7 @@ export class DagExecutor {
   }
 
   private async writeSnapshot(): Promise<void> {
-    const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
     const snapshot: NodeSnapshot[] = [];
     for (const [key, node] of this.nodes) {
       snapshot.push({
@@ -1129,13 +1129,13 @@ export class DagExecutor {
   private async emitFinding(scope: string): Promise<void> {
     if (!this.onFinding) return;
     try {
-      const findingPath = path.join(this.workspacePath, '.caam', 'shared', 'findings', `${scope}-finding.md`);
+      const findingPath = path.join(this.workspacePath, '.plurics', 'shared', 'findings', `${scope}-finding.md`);
       const content = await fs.readFile(findingPath, 'utf-8');
       this.onFinding(this.runId, scope, content);
     } catch {
       // Finding file may not exist yet or have a different name pattern
       try {
-        const findingsDir = path.join(this.workspacePath, '.caam', 'shared', 'findings');
+        const findingsDir = path.join(this.workspacePath, '.plurics', 'shared', 'findings');
         const files = await fs.readdir(findingsDir);
         const match = files.find(f => f.includes(scope) && f.endsWith('.md'));
         if (match) {
@@ -1178,7 +1178,7 @@ export class DagExecutor {
 
     // Update run metadata with final summary
     try {
-      const runDir = path.join(this.workspacePath, '.caam', 'runs', this.runId);
+      const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
       const metaPath = path.join(runDir, 'run-metadata.json');
       const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
       meta.completed_at = new Date().toISOString();

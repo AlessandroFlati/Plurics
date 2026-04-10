@@ -283,7 +283,7 @@ async function runLeanCheck(projectDir: string, conjectureId: string, timeoutMs:
 const plugin: WorkflowPlugin = {
 
   async onWorkflowStart(workspacePath: string, config: Record<string, unknown>): Promise<void> {
-    const sharedDir = path.join(workspacePath, '.caam', 'shared');
+    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
     const dataDir = path.join(sharedDir, 'data');
 
     for (const dir of ['tables', 'conjectures', 'batch', 'reviews']) {
@@ -303,7 +303,7 @@ const plugin: WorkflowPlugin = {
     _completedNodes: Array<{ name: string; scope: string | null; signal: SignalFile | null }>,
   ): Promise<void> {
     // Pool is restored by the platform. Ensure Lean project still exists.
-    const sharedDir = path.join(workspacePath, '.caam', 'shared');
+    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
     const leanProjectDir = path.join(sharedDir, 'lean-project');
     await ensureLeanProject(leanProjectDir);
   },
@@ -337,7 +337,7 @@ const plugin: WorkflowPlugin = {
     // Conjecturer: add new candidates to the pool
     if (agentBase === 'conjecturer') {
       const round = parseInt((signal.decision as any)?.round ?? '1', 10);
-      const sharedDir = path.join(workspacePath, '.caam', 'shared');
+      const sharedDir = path.join(workspacePath, '.plurics', 'shared');
       const batchPath = path.join(sharedDir, 'data', 'batch', `round-${round}.json`);
       const batch = await readJsonSafe<{ conjectures: any[] }>(batchPath);
       if (batch?.conjectures) {
@@ -365,7 +365,7 @@ const plugin: WorkflowPlugin = {
 
     // Selector: update pool with fitness + screened status
     if (agentBase === 'selector') {
-      const sharedDir = path.join(workspacePath, '.caam', 'shared');
+      const sharedDir = path.join(workspacePath, '.plurics', 'shared');
       const decisionsPath = path.join(sharedDir, 'data', 'reviews', 'selector-decisions.json');
       const decisions = await readJsonSafe<{ decisions: any[] }>(decisionsPath);
       if (decisions?.decisions) {
@@ -391,13 +391,13 @@ const plugin: WorkflowPlugin = {
         metadata: {
           ...(pool.get(scope)?.metadata ?? {}),
           proof_attempts: (signal.metrics as any)?.retries_used ?? 1,
-          lean_file: `.caam/shared/lean-project/MathDiscovery/Conjectures/${scope}.lean`,
+          lean_file: `.plurics/shared/lean-project/MathDiscovery/Conjectures/${scope}.lean`,
         },
       });
 
       // If proved, migrate to Theorems/
       if (success) {
-        const leanProjectDir = path.join(workspacePath, '.caam', 'shared', 'lean-project');
+        const leanProjectDir = path.join(workspacePath, '.plurics', 'shared', 'lean-project');
         await copyTheoremFromProved(leanProjectDir, scope);
       }
     }
@@ -406,7 +406,7 @@ const plugin: WorkflowPlugin = {
     if (agentBase === 'counterexample' && scope) {
       const decision = signal.decision as any;
       if (decision?.counterexample_found) {
-        const rejectionPath = path.join(workspacePath, '.caam', 'shared', 'data', 'audit', `${scope}-rejection-reason.md`);
+        const rejectionPath = path.join(workspacePath, '.plurics', 'shared', 'data', 'audit', `${scope}-rejection-reason.md`);
         const reason = await readFileSafe(rejectionPath);
         pool.update(scope, {
           status: 'falsified',
@@ -446,7 +446,7 @@ const plugin: WorkflowPlugin = {
     basePurpose: string,
     context: PurposeContext,
   ): Promise<string> {
-    const sharedDir = path.join(context.workspacePath, '.caam', 'shared');
+    const sharedDir = path.join(context.workspacePath, '.plurics', 'shared');
     const dataDir = path.join(sharedDir, 'data');
     const sections: string[] = [basePurpose];
     const agentBase = nodeName.split('.')[0];
@@ -467,8 +467,8 @@ const plugin: WorkflowPlugin = {
         case 'profiler': {
           // Tier 3: OHLC tables are too large to inline — reference only
           sections.push(`## Data Location\n`);
-          sections.push(`OHLC Parquet files: \`.caam/shared/data/tables/\``);
-          sections.push(`Manifest: \`.caam/shared/data/ohlc-manifest.json\``);
+          sections.push(`OHLC Parquet files: \`.plurics/shared/data/tables/\``);
+          sections.push(`Manifest: \`.plurics/shared/data/ohlc-manifest.json\``);
           break;
         }
 
@@ -581,7 +581,7 @@ const plugin: WorkflowPlugin = {
         case 'backtester': {
           // Tier 3: spec path only (process backend reads it directly)
           sections.push(`## Spec Location\n`);
-          sections.push(`Backtest spec: \`.caam/shared/data/backtest-spec.json\``);
+          sections.push(`Backtest spec: \`.plurics/shared/data/backtest-spec.json\``);
           break;
         }
       }

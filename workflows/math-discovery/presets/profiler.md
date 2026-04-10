@@ -6,16 +6,16 @@ factual substrate for hypothesis generation.
 
 ## Inputs (PRE-LOADED reference — read Parquet files via pandas)
 
-OHLC Parquet files: `.caam/shared/data/tables/` (use pandas, do NOT cat)
-Manifest: `.caam/shared/data/ohlc-manifest.json`
+OHLC Parquet files: `.plurics/shared/data/tables/` (use pandas, do NOT cat)
+Manifest: `.plurics/shared/data/ohlc-manifest.json`
 
 ## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/profile.json` | DataProfile schema output |
-| `.caam/shared/data/profile-summary.md` | Human-readable summary |
-| `.caam/shared/data/signals/profiler.done.json` | Signal |
+| `.plurics/shared/data/profile.json` | DataProfile schema output |
+| `.plurics/shared/data/profile-summary.md` | Human-readable summary |
+| `.plurics/shared/data/signals/profiler.done.json` | Signal |
 
 ## Step-by-step
 

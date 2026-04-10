@@ -9,10 +9,10 @@ and free of logical or statistical errors.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/batch-{{ROUND}}.json` | Input batch |
-| `.caam/shared/data/profiling-report.json` | DataManifest |
-| `.caam/shared/data/hypotheses/batch-{{ROUND}}-reviewed.json` | Your output |
-| `.caam/shared/data/signals/adversary-round-{{ROUND}}.done` | Signal |
+| `.plurics/shared/data/hypotheses/batch-{{ROUND}}.json` | Input batch |
+| `.plurics/shared/data/profiling-report.json` | DataManifest |
+| `.plurics/shared/data/hypotheses/batch-{{ROUND}}-reviewed.json` | Your output |
+| `.plurics/shared/data/signals/adversary-round-{{ROUND}}.done` | Signal |
 
 ## Step-by-step instructions
 
@@ -21,8 +21,8 @@ and free of logical or statistical errors.
 ```python
 import json, pathlib
 
-batch    = json.loads(pathlib.Path(".caam/shared/data/hypotheses/batch-{{ROUND}}.json").read_text())
-manifest = json.loads(pathlib.Path(".caam/shared/data/profiling-report.json").read_text())
+batch    = json.loads(pathlib.Path(".plurics/shared/data/hypotheses/batch-{{ROUND}}.json").read_text())
+manifest = json.loads(pathlib.Path(".plurics/shared/data/profiling-report.json").read_text())
 ```
 
 Build a lookup of column profiles by name for fast access.
@@ -128,7 +128,7 @@ For `reject` verdicts, explain why the hypothesis cannot be salvaged.
 Write atomically:
 
 ```python
-out = pathlib.Path(".caam/shared/data/hypotheses/batch-{{ROUND}}-reviewed.json")
+out = pathlib.Path(".plurics/shared/data/hypotheses/batch-{{ROUND}}-reviewed.json")
 tmp = out.with_suffix(".tmp")
 tmp.write_text(json.dumps(reviewed_batch, indent=2))
 tmp.rename(out)
@@ -137,7 +137,7 @@ tmp.rename(out)
 ### 5. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "adversary-round-{{ROUND}}.done").write_text("ok")
 ```

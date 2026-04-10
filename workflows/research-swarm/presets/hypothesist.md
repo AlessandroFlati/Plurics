@@ -8,13 +8,13 @@ review them before any testing occurs.
 ## Inputs (PRE-LOADED below -- do NOT cat/read manifest or counter)
 
 Data manifest digest and hypothesis counter are injected below by the platform.
-Findings and rejection-reasons: read from `.caam/shared/findings/` and `.caam/shared/data/audit/*-rejection-reason.md` (rounds 2+).
+Findings and rejection-reasons: read from `.plurics/shared/findings/` and `.plurics/shared/data/audit/*-rejection-reason.md` (rounds 2+).
 
 ## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/batch-{{ROUND}}.json` | Your output |
+| `.plurics/shared/data/hypotheses/batch-{{ROUND}}.json` | Your output |
 
 ## Step-by-step instructions
 
@@ -23,17 +23,17 @@ Findings and rejection-reasons: read from `.caam/shared/findings/` and `.caam/sh
 ```python
 import json, pathlib
 
-manifest  = json.loads(pathlib.Path(".caam/shared/data/profiling-report.json").read_text())
-counter   = json.loads(pathlib.Path(".caam/shared/data/hypothesis-counter.json").read_text())
+manifest  = json.loads(pathlib.Path(".plurics/shared/data/profiling-report.json").read_text())
+counter   = json.loads(pathlib.Path(".plurics/shared/data/hypothesis-counter.json").read_text())
 next_id   = counter["next_id"]
 ```
 
 Also read any previously rejected hypotheses from earlier rounds so you do not
 repeat them. Look for `batch-*-reviewed.json` files in
-`.caam/shared/data/hypotheses/` and collect any hypotheses with
+`.plurics/shared/data/hypotheses/` and collect any hypotheses with
 `verdict == "reject"`.
 
-**CRITICAL for rounds 2+:** Read all existing findings from `.caam/shared/findings/`
+**CRITICAL for rounds 2+:** Read all existing findings from `.plurics/shared/findings/`
 (files named `H-NNN-finding.md`). These are self-contained reports of what has
 already been discovered. Use them to:
 
@@ -46,20 +46,20 @@ already been discovered. Use them to:
    variables and hypothesis types.
 
 ```python
-findings_dir = pathlib.Path(".caam/shared/findings")
+findings_dir = pathlib.Path(".plurics/shared/findings")
 existing_findings = []
 if findings_dir.exists():
     for f in sorted(findings_dir.glob("*.md")):
         existing_findings.append({"id": f.stem.replace("-finding", ""), "content": f.read_text()})
 ```
 
-Also read **rejection reasons** from `.caam/shared/data/audit/`. These are written
+Also read **rejection reasons** from `.plurics/shared/data/audit/`. These are written
 by the falsifier when a hypothesis fails, and contain a root-cause analysis and
 concrete suggestions for reformulation. **Prioritize these** — they tell you
 exactly what went wrong and how to fix it.
 
 ```python
-audit_dir = pathlib.Path(".caam/shared/data/audit")
+audit_dir = pathlib.Path(".plurics/shared/data/audit")
 rejection_reasons = []
 if audit_dir.exists():
     for f in sorted(audit_dir.glob("*-rejection-reason.md")):
@@ -78,7 +78,7 @@ Reserve `{{HYPOTHESES_PER_BATCH}}` IDs atomically:
 ```python
 end_id = next_id + {{HYPOTHESES_PER_BATCH}}
 # Write updated counter immediately so concurrent agents don't collide
-pathlib.Path(".caam/shared/data/hypothesis-counter.json").write_text(
+pathlib.Path(".plurics/shared/data/hypothesis-counter.json").write_text(
     json.dumps({"next_id": end_id}, indent=2)
 )
 ids = [f"H-{i:03d}" for i in range(next_id, end_id)]
@@ -168,7 +168,7 @@ with new ones to maintain the count.
 ```python
 import pathlib, json
 
-out_dir = pathlib.Path(".caam/shared/data/hypotheses")
+out_dir = pathlib.Path(".plurics/shared/data/hypotheses")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 batch = {
@@ -185,7 +185,7 @@ tmp.rename(out_dir / "batch-{{ROUND}}.json")
 ### 6. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "hypothesist-round-{{ROUND}}.done").write_text("ok")
 ```

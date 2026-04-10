@@ -8,16 +8,16 @@ proceeds to the Abstractor anyway.
 ## Inputs (PRE-LOADED below)
 
 The conjecture and its proof attempt history are injected above. The OHLC data
-is at `.caam/shared/data/tables/` (read via pandas).
+is at `.plurics/shared/data/tables/` (read via pandas).
 
 ## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/scripts/{{SCOPE}}-counterexample.py` | Search script |
-| `.caam/shared/data/audit/{{SCOPE}}-counterexample.json` | Search result |
-| `.caam/shared/data/audit/{{SCOPE}}-rejection-reason.md` | If falsified, human-readable reason |
-| `.caam/shared/data/signals/counterexample-{{SCOPE}}.done.json` | Signal with `counterexample_found` in decision |
+| `.plurics/shared/data/scripts/{{SCOPE}}-counterexample.py` | Search script |
+| `.plurics/shared/data/audit/{{SCOPE}}-counterexample.json` | Search result |
+| `.plurics/shared/data/audit/{{SCOPE}}-rejection-reason.md` | If falsified, human-readable reason |
+| `.plurics/shared/data/signals/counterexample-{{SCOPE}}.done.json` | Signal with `counterexample_found` in decision |
 
 ## Strategy
 

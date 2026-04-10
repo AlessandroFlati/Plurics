@@ -11,8 +11,8 @@ The conjecture and its Lean statement are injected above.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/conjectures/{{SCOPE}}-blueprint.md` | Proof strategy |
-| `.caam/shared/data/signals/strategist-{{SCOPE}}.done.json` | Signal |
+| `.plurics/shared/data/conjectures/{{SCOPE}}-blueprint.md` | Proof strategy |
+| `.plurics/shared/data/signals/strategist-{{SCOPE}}.done.json` | Signal |
 
 ## Blueprint Structure
 

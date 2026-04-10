@@ -57,12 +57,16 @@ export class ProcessSession implements AgentBackend {
     const cwd = this.config.workingDir ?? this.config.cwd;
 
     // Write purpose to a temp file the process can read
-    const purposePath = path.join(cwd, `.caam-purpose-${this.id}.md`);
+    const purposePath = path.join(cwd, `.plurics-purpose-${this.id}.md`);
     await fs.writeFile(purposePath, this.config.purpose, 'utf-8');
 
     const env = {
       ...process.env,
       ...this.config.env,
+      PLURICS_PURPOSE_FILE: purposePath,
+      PLURICS_AGENT_NAME: this.name,
+      PLURICS_WORKSPACE: this.config.cwd,
+      // Legacy aliases for scripts still using CAAM_* names
       CAAM_PURPOSE_FILE: purposePath,
       CAAM_AGENT_NAME: this.name,
       CAAM_WORKSPACE: this.config.cwd,

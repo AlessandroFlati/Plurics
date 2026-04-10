@@ -12,9 +12,9 @@ Symbols, timeframes, and month range are injected by the platform.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/tables/{SYMBOL}_{TF}.parquet` | Per-symbol-timeframe OHLC data |
-| `.caam/shared/data/ohlc-manifest.json` | Manifest describing all fetched series |
-| `.caam/shared/data/signals/ohlc_fetch.done.json` | Completion signal |
+| `.plurics/shared/data/tables/{SYMBOL}_{TF}.parquet` | Per-symbol-timeframe OHLC data |
+| `.plurics/shared/data/ohlc-manifest.json` | Manifest describing all fetched series |
+| `.plurics/shared/data/signals/ohlc_fetch.done.json` | Completion signal |
 
 ## Expected Behavior
 

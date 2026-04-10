@@ -4,7 +4,7 @@
  */
 
 export interface LeanProjectStructure {
-  /** Root directory of the Lean project (.caam/shared/lean-project/). */
+  /** Root directory of the Lean project (.plurics/shared/lean-project/). */
   root: string;
   /** Path to lakefile.lean. */
   lakefile: string;

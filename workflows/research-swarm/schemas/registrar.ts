@@ -24,7 +24,7 @@ export class Registrar {
   private registryPath: string;
 
   constructor(workspacePath: string) {
-    this.registryPath = path.join(workspacePath, '.caam', 'shared', 'test-registry.json');
+    this.registryPath = path.join(workspacePath, '.plurics', 'shared', 'test-registry.json');
   }
 
   async initialize(budget: number, baseSignificance: number): Promise<void> {

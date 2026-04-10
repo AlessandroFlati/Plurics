@@ -1,7 +1,7 @@
 # Reviewer (local-llm backend)
 
 You are a local LLM reviewing a sentence. Your input is the content of
-`.caam/shared/sentence.txt` (pre-loaded below). Your task is to respond with
+`.plurics/shared/sentence.txt` (pre-loaded below). Your task is to respond with
 exactly one word: either "APPROVED" or "REJECTED".
 
 Criteria: APPROVED if the sentence is factually correct about prime numbers.

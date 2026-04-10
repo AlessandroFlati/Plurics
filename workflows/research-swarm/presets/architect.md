@@ -12,7 +12,7 @@ The hypothesis and relevant column profiles are injected below by the platform.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Your output |
+| `.plurics/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Your output |
 
 ## Step-by-step instructions
 
@@ -197,7 +197,7 @@ For `causal` mode, include `robustness_checks`:
 Write atomically:
 
 ```python
-out = pathlib.Path(".caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json")
+out = pathlib.Path(".plurics/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 tmp = out.with_suffix(".tmp")
 tmp.write_text(json.dumps(plan, indent=2))
@@ -207,7 +207,7 @@ tmp.rename(out)
 ### 8. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "architect-{{HYPOTHESIS_ID}}.done").write_text("ok")
 ```

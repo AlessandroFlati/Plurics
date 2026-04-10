@@ -14,7 +14,7 @@ export class SignalWatcher {
   private onError: ErrorCallback | null = null;
 
   start(workspacePath: string, onSignal: SignalCallback): void {
-    const signalsDir = path.join(workspacePath, '.caam', 'shared', 'signals');
+    const signalsDir = path.join(workspacePath, '.plurics', 'shared', 'signals');
     this.startDir(signalsDir, onSignal);
   }
 

@@ -6,13 +6,13 @@ is a child_process managed by the AgentRegistry.
 
 ## Inputs
 
-Lean project at `.caam/shared/lean-project/` with the Conjecturer's `{{SCOPE}}.lean`
+Lean project at `.plurics/shared/lean-project/` with the Conjecturer's `{{SCOPE}}.lean`
 file in `MathDiscovery/Conjectures/`.
 
 ## Execution
 
 ```bash
-cd .caam/shared/lean-project
+cd .plurics/shared/lean-project
 lake build MathDiscovery.Conjectures.{{SCOPE}}
 ```
 
@@ -30,6 +30,6 @@ the error output, up to `prover_max_self_corrections` times.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/conjectures/{{SCOPE}}-check-result.json` | LeanCheckResult |
-| `.caam/shared/data/conjectures/{{SCOPE}}-last-error.txt` | Compiler errors (for retry context) |
-| `.caam/shared/data/signals/lean_check-{{SCOPE}}.done.json` | Signal |
+| `.plurics/shared/data/conjectures/{{SCOPE}}-check-result.json` | LeanCheckResult |
+| `.plurics/shared/data/conjectures/{{SCOPE}}-last-error.txt` | Compiler errors (for retry context) |
+| `.plurics/shared/data/signals/lean_check-{{SCOPE}}.done.json` | Signal |

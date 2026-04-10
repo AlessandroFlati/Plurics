@@ -13,8 +13,8 @@ Confirmed findings with Lean theorem references are injected above.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/backtest-spec.json` | BacktestSpec for the Backtester |
-| `.caam/shared/data/signals/backtest_designer.done.json` | Signal |
+| `.plurics/shared/data/backtest-spec.json` | BacktestSpec for the Backtester |
+| `.plurics/shared/data/signals/backtest_designer.done.json` | Signal |
 
 ## Design Principles
 

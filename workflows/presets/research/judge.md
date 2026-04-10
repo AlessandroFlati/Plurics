@@ -14,11 +14,11 @@ the architect or loop back to the hypothesist.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/batch-{{ROUND}}-reviewed.json` | Input |
-| `.caam/shared/data/profiling-report.json` | DataManifest |
-| `.caam/shared/data/hypotheses/H-NNN.json` | One file per approved hypothesis |
-| `.caam/shared/data/hypotheses/approved-{{ROUND}}.json` | Approved ID list |
-| `.caam/shared/data/signals/` | Signal directory |
+| `.plurics/shared/data/hypotheses/batch-{{ROUND}}-reviewed.json` | Input |
+| `.plurics/shared/data/profiling-report.json` | DataManifest |
+| `.plurics/shared/data/hypotheses/H-NNN.json` | One file per approved hypothesis |
+| `.plurics/shared/data/hypotheses/approved-{{ROUND}}.json` | Approved ID list |
+| `.plurics/shared/data/signals/` | Signal directory |
 
 ## Step-by-step instructions
 
@@ -28,10 +28,10 @@ the architect or loop back to the hypothesist.
 import json, pathlib
 
 reviewed = json.loads(
-    pathlib.Path(".caam/shared/data/hypotheses/batch-{{ROUND}}-reviewed.json").read_text()
+    pathlib.Path(".plurics/shared/data/hypotheses/batch-{{ROUND}}-reviewed.json").read_text()
 )
 manifest = json.loads(
-    pathlib.Path(".caam/shared/data/profiling-report.json").read_text()
+    pathlib.Path(".plurics/shared/data/profiling-report.json").read_text()
 )
 ```
 
@@ -65,7 +65,7 @@ Set `status = "rejected"`. Record `rejection_reason`.
 For every approved hypothesis, write a standalone file:
 
 ```python
-hyp_dir = pathlib.Path(".caam/shared/data/hypotheses")
+hyp_dir = pathlib.Path(".plurics/shared/data/hypotheses")
 for h in approved:
     h["status"] = "approved"
     h["approved_in_round"] = {{ROUND}}

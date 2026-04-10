@@ -8,10 +8,10 @@ specify assumption checks with fallbacks, and compute a power analysis.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis to plan |
-| `.caam/shared/data/profiling-report.json` | DataManifest |
-| `.caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Your output |
-| `.caam/shared/data/signals/architect-{{HYPOTHESIS_ID}}.done` | Signal |
+| `.plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis to plan |
+| `.plurics/shared/data/profiling-report.json` | DataManifest |
+| `.plurics/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Your output |
+| `.plurics/shared/data/signals/architect-{{HYPOTHESIS_ID}}.done` | Signal |
 
 ## Step-by-step instructions
 
@@ -20,8 +20,8 @@ specify assumption checks with fallbacks, and compute a power analysis.
 ```python
 import json, pathlib
 
-hyp      = json.loads(pathlib.Path(".caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
-manifest = json.loads(pathlib.Path(".caam/shared/data/profiling-report.json").read_text())
+hyp      = json.loads(pathlib.Path(".plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
+manifest = json.loads(pathlib.Path(".plurics/shared/data/profiling-report.json").read_text())
 
 col_profiles = {c["name"]: c for c in manifest["column_profiles"]}
 ```
@@ -197,7 +197,7 @@ For `causal` mode, include `robustness_checks`:
 Write atomically:
 
 ```python
-out = pathlib.Path(".caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json")
+out = pathlib.Path(".plurics/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 tmp = out.with_suffix(".tmp")
 tmp.write_text(json.dumps(plan, indent=2))
@@ -207,7 +207,7 @@ tmp.rename(out)
 ### 8. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "architect-{{HYPOTHESIS_ID}}.done").write_text("ok")
 ```

@@ -6,24 +6,24 @@ canonical artefacts that every downstream agent depends on.
 
 ## Workspace
 
-All artefacts live under `.caam/shared/data/`.
+All artefacts live under `.plurics/shared/data/`.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/dataset.parquet` | Canonical dataset (your primary output) |
-| `.caam/shared/data/dataset_sample.csv` | First 100 rows for human inspection |
-| `.caam/shared/data/ingestor-report.json` | Machine-readable ingestion summary |
-| `.caam/shared/data/signals/` | Signal directory – write `ingestor.done` or `ingestor.failed` |
+| `.plurics/shared/data/dataset.parquet` | Canonical dataset (your primary output) |
+| `.plurics/shared/data/dataset_sample.csv` | First 100 rows for human inspection |
+| `.plurics/shared/data/ingestor-report.json` | Machine-readable ingestion summary |
+| `.plurics/shared/data/signals/` | Signal directory – write `ingestor.done` or `ingestor.failed` |
 
-The input file path is provided via the task context or the `.caam/task.json`
+The input file path is provided via the task context or the `.plurics/task.json`
 file at `input_path`.
 
 ## Step-by-step instructions
 
 ### 1. Identify the input file
 
-Read `.caam/task.json` to find `input_path`. If the file does not exist, check
-for any file in `.caam/shared/data/raw/` whose extension is one of:
+Read `.plurics/task.json` to find `input_path`. If the file does not exist, check
+for any file in `.plurics/shared/data/raw/` whose extension is one of:
 `.csv`, `.tsv`, `.parquet`, `.feather`, `.xlsx`, `.xls`, `.json`, `.jsonl`.
 
 If no input is found, write `ingestor.failed` with reason `no_input_file` and
@@ -84,7 +84,7 @@ Replace the column only if at least 90% of non-null values convert successfully.
 ```python
 import json, pathlib, tempfile, os
 
-data_dir = pathlib.Path(".caam/shared/data")
+data_dir = pathlib.Path(".plurics/shared/data")
 data_dir.mkdir(parents=True, exist_ok=True)
 
 # Parquet (atomic write via temp file)

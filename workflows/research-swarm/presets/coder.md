@@ -8,13 +8,13 @@ modifications.
 ## Inputs (PRE-LOADED below -- do NOT cat/read these files)
 
 The hypothesis, test plan, and relevant column profiles are injected below by the platform.
-Dataset for pandas: `.caam/shared/data/dataset.parquet` (read via pandas in your script, not cat).
+Dataset for pandas: `.plurics/shared/data/dataset.parquet` (read via pandas in your script, not cat).
 
 ## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py` | Your output |
+| `.plurics/shared/data/scripts/{{HYPOTHESIS_ID}}.py` | Your output |
 
 ## Script requirements
 
@@ -24,7 +24,7 @@ Dataset for pandas: `.caam/shared/data/dataset.parquet` (read via pandas in your
 - No command-line arguments. No interactive input.
 - No plots, no `plt.show()`, no `matplotlib` display calls.
 - All file paths use `pathlib.Path` and are relative to the working directory
-  `.caam/shared/data/`.
+  `.plurics/shared/data/`.
 - Always writes a result JSON, even on failure.
 - Wraps all logic in a single top-level `try/except Exception`.
 
@@ -53,8 +53,8 @@ determine what to write – do not guess.
 
 ```python
 import json, pathlib
-hyp  = json.loads(pathlib.Path(".caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
-plan = json.loads(pathlib.Path(".caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json").read_text())
+hyp  = json.loads(pathlib.Path(".plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
+plan = json.loads(pathlib.Path(".plurics/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json").read_text())
 ```
 
 ### 2. Install dependencies block
@@ -75,7 +75,7 @@ partial correlation is required.
 ### 3. Constants block
 
 ```python
-DATA_DIR       = pathlib.Path(".caam/shared/data")
+DATA_DIR       = pathlib.Path(".plurics/shared/data")
 DATASET_PATH   = DATA_DIR / "dataset.parquet"
 RESULT_PATH    = DATA_DIR / "results" / "{{HYPOTHESIS_ID}}-result.json"
 HYPOTHESIS_ID  = "{{HYPOTHESIS_ID}}"
@@ -219,7 +219,7 @@ RESULT_SUMMARY: {"hypothesis_id": "{{HYPOTHESIS_ID}}", "passes_acceptance": true
 ### 13. Write the script file
 
 ```python
-out = pathlib.Path(".caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py")
+out = pathlib.Path(".plurics/shared/data/scripts/{{HYPOTHESIS_ID}}.py")
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(script_content)
 ```
@@ -234,7 +234,7 @@ ast.parse(out.read_text())
 ### 14. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "coder-{{HYPOTHESIS_ID}}.done").write_text("ok")
 ```

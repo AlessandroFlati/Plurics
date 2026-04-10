@@ -9,14 +9,14 @@ for revision.
 ## Inputs (PRE-LOADED below -- do NOT cat/read these files)
 
 The hypothesis, test result, and relevant column profiles are injected below by the platform.
-Dataset for pandas: `.caam/shared/data/dataset.parquet`
+Dataset for pandas: `.plurics/shared/data/dataset.parquet`
 
 ## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json` | Your output (JSON) |
-| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-rejection-reason.md` | Human-readable rejection (only if falsified) |
+| `.plurics/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json` | Your output (JSON) |
+| `.plurics/shared/data/audit/{{HYPOTHESIS_ID}}-rejection-reason.md` | Human-readable rejection (only if falsified) |
 
 ## Step-by-step instructions
 
@@ -31,10 +31,10 @@ subprocess.check_call([sys.executable, "-m", "pip", "install",
 import pandas as pd, numpy as np
 from scipy import stats
 
-hyp      = json.loads(pathlib.Path(".caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
-result   = json.loads(pathlib.Path(".caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json").read_text())
-manifest = json.loads(pathlib.Path(".caam/shared/data/profiling-report.json").read_text())
-df       = pd.read_parquet(".caam/shared/data/dataset.parquet")
+hyp      = json.loads(pathlib.Path(".plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
+result   = json.loads(pathlib.Path(".plurics/shared/data/results/{{HYPOTHESIS_ID}}-result.json").read_text())
+manifest = json.loads(pathlib.Path(".plurics/shared/data/profiling-report.json").read_text())
+df       = pd.read_parquet(".plurics/shared/data/dataset.parquet")
 
 col_profiles = {c["name"]: c for c in manifest["column_profiles"]}
 ```
@@ -252,7 +252,7 @@ survived = len(checks_falsified) == 0
 Write atomically:
 
 ```python
-out = pathlib.Path(".caam/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json")
+out = pathlib.Path(".plurics/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 tmp = out.with_suffix(".tmp")
 tmp.write_text(json.dumps(report, indent=2))
@@ -264,7 +264,7 @@ tmp.rename(out)
 If `survived == False` or `early_exit == True`, write a human-readable rejection
 reason that the hypothesist can use to formulate a better replacement hypothesis.
 
-Write to `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-rejection-reason.md`:
+Write to `.plurics/shared/data/audit/{{HYPOTHESIS_ID}}-rejection-reason.md`:
 
 ```markdown
 # Rejection: {{HYPOTHESIS_ID}}
@@ -290,7 +290,7 @@ Be specific enough that the hypothesist can act on this directly.}
 
 ```python
 if not survived:
-    reason_path = pathlib.Path(f".caam/shared/data/audit/{{HYPOTHESIS_ID}}-rejection-reason.md")
+    reason_path = pathlib.Path(f".plurics/shared/data/audit/{{HYPOTHESIS_ID}}-rejection-reason.md")
     reason_path.parent.mkdir(parents=True, exist_ok=True)
     reason_tmp = reason_path.with_suffix(".tmp")
     reason_tmp.write_text(rejection_reason_text)
@@ -306,7 +306,7 @@ FALSIFIER_VERDICT: {"hypothesis_id": "{{HYPOTHESIS_ID}}", "survived": true, "rou
 ### 9. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "falsifier-{{HYPOTHESIS_ID}}.done").write_text("ok")
 ```

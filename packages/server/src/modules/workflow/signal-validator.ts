@@ -52,7 +52,7 @@ export async function validateSignalOutputs(
 
   for (const output of signal.outputs) {
     const outputPath = normalizeAgentPath(output.path);
-    const fullPath = path.join(workspacePath, '.caam', outputPath);
+    const fullPath = path.join(workspacePath, '.plurics', outputPath);
 
     if (!await fileExists(fullPath)) {
       errors.push({ path: output.path, issue: 'missing', expected: 'exists', actual: null });

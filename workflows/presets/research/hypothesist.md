@@ -9,10 +9,10 @@ review them before any testing occurs.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/profiling-report.json` | DataManifest from profiler |
-| `.caam/shared/data/hypothesis-counter.json` | Shared atomic ID counter |
-| `.caam/shared/data/hypotheses/batch-{{ROUND}}.json` | Your output |
-| `.caam/shared/data/signals/` | Signal directory |
+| `.plurics/shared/data/profiling-report.json` | DataManifest from profiler |
+| `.plurics/shared/data/hypothesis-counter.json` | Shared atomic ID counter |
+| `.plurics/shared/data/hypotheses/batch-{{ROUND}}.json` | Your output |
+| `.plurics/shared/data/signals/` | Signal directory |
 
 ## Step-by-step instructions
 
@@ -21,14 +21,14 @@ review them before any testing occurs.
 ```python
 import json, pathlib
 
-manifest  = json.loads(pathlib.Path(".caam/shared/data/profiling-report.json").read_text())
-counter   = json.loads(pathlib.Path(".caam/shared/data/hypothesis-counter.json").read_text())
+manifest  = json.loads(pathlib.Path(".plurics/shared/data/profiling-report.json").read_text())
+counter   = json.loads(pathlib.Path(".plurics/shared/data/hypothesis-counter.json").read_text())
 next_id   = counter["next_id"]
 ```
 
 Also read any previously rejected hypotheses from earlier rounds so you do not
 repeat them. Look for `batch-*-reviewed.json` files in
-`.caam/shared/data/hypotheses/` and collect any hypotheses with
+`.plurics/shared/data/hypotheses/` and collect any hypotheses with
 `verdict == "reject"`.
 
 ### 2. Allocate hypothesis IDs
@@ -38,7 +38,7 @@ Reserve `{{HYPOTHESES_PER_BATCH}}` IDs atomically:
 ```python
 end_id = next_id + {{HYPOTHESES_PER_BATCH}}
 # Write updated counter immediately so concurrent agents don't collide
-pathlib.Path(".caam/shared/data/hypothesis-counter.json").write_text(
+pathlib.Path(".plurics/shared/data/hypothesis-counter.json").write_text(
     json.dumps({"next_id": end_id}, indent=2)
 )
 ids = [f"H-{i:03d}" for i in range(next_id, end_id)]
@@ -128,7 +128,7 @@ with new ones to maintain the count.
 ```python
 import pathlib, json
 
-out_dir = pathlib.Path(".caam/shared/data/hypotheses")
+out_dir = pathlib.Path(".plurics/shared/data/hypotheses")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 batch = {
@@ -145,7 +145,7 @@ tmp.rename(out_dir / "batch-{{ROUND}}.json")
 ### 6. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "hypothesist-round-{{ROUND}}.done").write_text("ok")
 ```

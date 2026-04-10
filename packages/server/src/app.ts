@@ -11,6 +11,7 @@ import { WorkflowRepository } from './db/workflow-repository.js';
 import { AgentBootstrap } from './modules/knowledge/agent-bootstrap.js';
 import { KnowledgeWatcher } from './modules/knowledge/knowledge-watcher.js';
 import { seedPresetsFromFilesystem } from './modules/workflow/preset-resolver.js';
+import { resolvePluricsPath } from './modules/workflow/utils.js';
 
 const PORT = parseInt(process.env.PORT ?? '11001', 10);
 
@@ -175,7 +176,7 @@ app.get('/api/workflows/runs/:runId/log/:agent', (req, res) => {
   // Find workspace path from workflow run
   const run = workflowRepo.getRun(req.params.runId);
   if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
-  const logPath = path.join(run.workspace_path, '.caam', 'runs', req.params.runId, 'logs', `${req.params.agent}.log`);
+  const logPath = resolvePluricsPath(run.workspace_path, 'runs', req.params.runId, 'logs', `${req.params.agent}.log`);
   try {
     const content = fs.readFileSync(logPath, 'utf-8');
     res.type('text/plain').send(content);
@@ -187,7 +188,7 @@ app.get('/api/workflows/runs/:runId/log/:agent', (req, res) => {
 app.get('/api/workflows/runs/:runId/purpose/:agent', (req, res) => {
   const run = workflowRepo.getRun(req.params.runId);
   if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
-  const purposePath = path.join(run.workspace_path, '.caam', 'runs', req.params.runId, 'purposes', `${req.params.agent}.md`);
+  const purposePath = resolvePluricsPath(run.workspace_path, 'runs', req.params.runId, 'purposes', `${req.params.agent}.md`);
   try {
     const content = fs.readFileSync(purposePath, 'utf-8');
     res.type('text/markdown').send(content);
@@ -199,7 +200,7 @@ app.get('/api/workflows/runs/:runId/purpose/:agent', (req, res) => {
 app.get('/api/workflows/runs/:runId/metadata', (req, res) => {
   const run = workflowRepo.getRun(req.params.runId);
   if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
-  const metaPath = path.join(run.workspace_path, '.caam', 'runs', req.params.runId, 'run-metadata.json');
+  const metaPath = resolvePluricsPath(run.workspace_path, 'runs', req.params.runId, 'run-metadata.json');
   try {
     const content = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
     res.json(content);
@@ -251,7 +252,7 @@ app.get('/api/workflows/runs/resumable', (_req, res) => {
 app.get('/api/workflows/runs/:runId/findings', (req, res) => {
   const run = workflowRepo.getRun(req.params.runId);
   if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
-  const findingsDir = path.join(run.workspace_path, '.caam', 'runs', req.params.runId, 'findings');
+  const findingsDir = resolvePluricsPath(run.workspace_path, 'runs', req.params.runId, 'findings');
   try {
     const files = fs.readdirSync(findingsDir).filter(f => f.endsWith('.md'));
     const findings = files.map(f => {
@@ -262,7 +263,7 @@ app.get('/api/workflows/runs/:runId/findings', (req, res) => {
     res.json(findings);
   } catch {
     // Also check shared/findings (symlink may point to run dir)
-    const sharedDir = path.join(run.workspace_path, '.caam', 'shared', 'findings');
+    const sharedDir = resolvePluricsPath(run.workspace_path, 'shared', 'findings');
     try {
       const files = fs.readdirSync(sharedDir).filter(f => f.endsWith('.md'));
       const findings = files.map(f => {

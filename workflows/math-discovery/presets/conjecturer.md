@@ -17,9 +17,9 @@ from previous rounds are also included.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/batch/round-{{ROUND}}.json` | ConjectureBatch |
-| `.caam/shared/data/conjectures/C-NNN.json` | One file per conjecture |
-| `.caam/shared/data/signals/conjecturer-round-{{ROUND}}.done.json` | Signal |
+| `.plurics/shared/data/batch/round-{{ROUND}}.json` | ConjectureBatch |
+| `.plurics/shared/data/conjectures/C-NNN.json` | One file per conjecture |
+| `.plurics/shared/data/signals/conjecturer-round-{{ROUND}}.done.json` | Signal |
 
 ## Conjecture Schema
 

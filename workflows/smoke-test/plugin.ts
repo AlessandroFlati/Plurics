@@ -9,7 +9,7 @@ import * as fs from 'node:fs/promises';
 const plugin: WorkflowPlugin = {
   async onPurposeGenerate(nodeName, basePurpose, context: PurposeContext): Promise<string> {
     if (nodeName === 'reviewer') {
-      const sentencePath = path.join(context.workspacePath, '.caam', 'shared', 'sentence.txt');
+      const sentencePath = path.join(context.workspacePath, '.plurics', 'shared', 'sentence.txt');
       try {
         const sentence = await fs.readFile(sentencePath, 'utf-8');
         return `${basePurpose}\n\n---\n\n## Sentence to Review\n\n"${sentence.trim()}"\n\nRespond with ONLY "APPROVED" or "REJECTED".`;

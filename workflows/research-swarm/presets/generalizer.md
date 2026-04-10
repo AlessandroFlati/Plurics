@@ -8,13 +8,13 @@ broader strategies if a narrower one has already failed.
 ## Inputs (PRE-LOADED below -- do NOT cat/read these files)
 
 The hypothesis, result, falsification report, and relevant column profiles are injected below.
-Dataset for pandas: `.caam/shared/data/dataset.parquet`
+Dataset for pandas: `.plurics/shared/data/dataset.parquet`
 
 ## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-generalized.json` | Your output |
+| `.plurics/shared/data/audit/{{HYPOTHESIS_ID}}-generalized.json` | Your output |
 
 ## Step-by-step instructions
 
@@ -29,10 +29,10 @@ subprocess.check_call([sys.executable, "-m", "pip", "install",
 import pandas as pd, numpy as np
 from scipy import stats
 
-hyp      = json.loads(pathlib.Path(".caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
-result   = json.loads(pathlib.Path(".caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json").read_text())
-manifest = json.loads(pathlib.Path(".caam/shared/data/profiling-report.json").read_text())
-df       = pd.read_parquet(".caam/shared/data/dataset.parquet")
+hyp      = json.loads(pathlib.Path(".plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
+result   = json.loads(pathlib.Path(".plurics/shared/data/results/{{HYPOTHESIS_ID}}-result.json").read_text())
+manifest = json.loads(pathlib.Path(".plurics/shared/data/profiling-report.json").read_text())
+df       = pd.read_parquet(".plurics/shared/data/dataset.parquet")
 
 col_profiles   = {c["name"]: c for c in manifest["column_profiles"]}
 primary        = hyp["variables"]["primary"]
@@ -195,7 +195,7 @@ Based on which strategies passed, determine the generalisability scope:
 Write atomically:
 
 ```python
-out = pathlib.Path(".caam/shared/data/audit/{{HYPOTHESIS_ID}}-generalized.json")
+out = pathlib.Path(".plurics/shared/data/audit/{{HYPOTHESIS_ID}}-generalized.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 tmp = out.with_suffix(".tmp")
 tmp.write_text(json.dumps(report, indent=2))
@@ -211,7 +211,7 @@ GENERALIZER_RESULT: {"hypothesis_id": "{{HYPOTHESIS_ID}}", "scope": "moderate", 
 ### 6. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "generalizer-{{HYPOTHESIS_ID}}.done").write_text("ok")
 ```

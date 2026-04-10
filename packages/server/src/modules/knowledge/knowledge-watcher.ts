@@ -17,7 +17,7 @@ export class KnowledgeWatcher {
     this.stop();
     this.cwd = cwd;
 
-    const watchPath = path.join(cwd, '.caam', 'agents');
+    const watchPath = path.join(cwd, '.plurics', 'agents');
     this.watcher = chokidar.watch(path.join(watchPath, '**', 'inbox.md'), {
       ignoreInitial: true,
       awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
@@ -64,6 +64,6 @@ export class KnowledgeWatcher {
     const session = this.registry.getByName(agentName);
     if (!session || session.info.status !== 'running') return;
 
-    session.write(`\r\n[CAAM] New message in your inbox. Read .caam/agents/${agentName}/inbox.md\r\n`);
+    session.write(`\r\n[plurics] New message in your inbox. Read .plurics/agents/${agentName}/inbox.md\r\n`);
   }
 }

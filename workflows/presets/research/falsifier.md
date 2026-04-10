@@ -10,12 +10,12 @@ for revision.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis + test result |
-| `.caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json` | Original test result |
-| `.caam/shared/data/dataset.parquet` | Dataset |
-| `.caam/shared/data/profiling-report.json` | DataManifest |
-| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json` | Your output |
-| `.caam/shared/data/signals/falsifier-{{HYPOTHESIS_ID}}.done` | Signal |
+| `.plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis + test result |
+| `.plurics/shared/data/results/{{HYPOTHESIS_ID}}-result.json` | Original test result |
+| `.plurics/shared/data/dataset.parquet` | Dataset |
+| `.plurics/shared/data/profiling-report.json` | DataManifest |
+| `.plurics/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json` | Your output |
+| `.plurics/shared/data/signals/falsifier-{{HYPOTHESIS_ID}}.done` | Signal |
 
 ## Step-by-step instructions
 
@@ -30,10 +30,10 @@ subprocess.check_call([sys.executable, "-m", "pip", "install",
 import pandas as pd, numpy as np
 from scipy import stats
 
-hyp      = json.loads(pathlib.Path(".caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
-result   = json.loads(pathlib.Path(".caam/shared/data/results/{{HYPOTHESIS_ID}}-result.json").read_text())
-manifest = json.loads(pathlib.Path(".caam/shared/data/profiling-report.json").read_text())
-df       = pd.read_parquet(".caam/shared/data/dataset.parquet")
+hyp      = json.loads(pathlib.Path(".plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
+result   = json.loads(pathlib.Path(".plurics/shared/data/results/{{HYPOTHESIS_ID}}-result.json").read_text())
+manifest = json.loads(pathlib.Path(".plurics/shared/data/profiling-report.json").read_text())
+df       = pd.read_parquet(".plurics/shared/data/dataset.parquet")
 
 col_profiles = {c["name"]: c for c in manifest["column_profiles"]}
 ```
@@ -251,7 +251,7 @@ survived = len(checks_falsified) == 0
 Write atomically:
 
 ```python
-out = pathlib.Path(".caam/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json")
+out = pathlib.Path(".plurics/shared/data/audit/{{HYPOTHESIS_ID}}-falsification.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 tmp = out.with_suffix(".tmp")
 tmp.write_text(json.dumps(report, indent=2))
@@ -267,7 +267,7 @@ FALSIFIER_VERDICT: {"hypothesis_id": "{{HYPOTHESIS_ID}}", "survived": true, "rou
 ### 8. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "falsifier-{{HYPOTHESIS_ID}}.done").write_text("ok")
 ```

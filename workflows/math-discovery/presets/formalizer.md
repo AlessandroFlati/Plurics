@@ -7,15 +7,15 @@ capture the intent precisely, with the right types and the right quantifiers.
 ## Inputs (PRE-LOADED below)
 
 The conjecture to formalize is injected above. The Lean project base
-definitions are in `.caam/shared/lean-project/MathDiscovery/Basic.lean`
+definitions are in `.plurics/shared/lean-project/MathDiscovery/Basic.lean`
 (import via `import MathDiscovery.Basic`).
 
 ## Output
 
 | Path | Description |
 |---|---|
-| `.caam/shared/lean-project/MathDiscovery/Conjectures/{{SCOPE}}.lean` | Lean file with statement + `sorry` placeholder |
-| `.caam/shared/data/signals/formalizer-{{SCOPE}}.done.json` | Signal |
+| `.plurics/shared/lean-project/MathDiscovery/Conjectures/{{SCOPE}}.lean` | Lean file with statement + `sorry` placeholder |
+| `.plurics/shared/data/signals/formalizer-{{SCOPE}}.done.json` | Signal |
 
 ## Lean File Template
 

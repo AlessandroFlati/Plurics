@@ -8,11 +8,11 @@ and overwrite the script file. The auditor will then re-review the fixed script.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/audit/{{HYPOTHESIS_ID}}-audit.json` | Audit report |
-| `.caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py` | Script to fix (overwrite) |
-| `.caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Test plan |
-| `.caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis |
-| `.caam/shared/data/signals/fixer-{{HYPOTHESIS_ID}}.done` | Signal |
+| `.plurics/shared/data/audit/{{HYPOTHESIS_ID}}-audit.json` | Audit report |
+| `.plurics/shared/data/scripts/{{HYPOTHESIS_ID}}.py` | Script to fix (overwrite) |
+| `.plurics/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json` | Test plan |
+| `.plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json` | Hypothesis |
+| `.plurics/shared/data/signals/fixer-{{HYPOTHESIS_ID}}.done` | Signal |
 
 ## Step-by-step instructions
 
@@ -21,11 +21,11 @@ and overwrite the script file. The auditor will then re-review the fixed script.
 ```python
 import json, pathlib, ast
 
-audit       = json.loads(pathlib.Path(".caam/shared/data/audit/{{HYPOTHESIS_ID}}-audit.json").read_text())
-script_path = pathlib.Path(".caam/shared/data/scripts/{{HYPOTHESIS_ID}}.py")
+audit       = json.loads(pathlib.Path(".plurics/shared/data/audit/{{HYPOTHESIS_ID}}-audit.json").read_text())
+script_path = pathlib.Path(".plurics/shared/data/scripts/{{HYPOTHESIS_ID}}.py")
 script_text = script_path.read_text()
-plan        = json.loads(pathlib.Path(".caam/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json").read_text())
-hyp         = json.loads(pathlib.Path(".caam/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
+plan        = json.loads(pathlib.Path(".plurics/shared/data/test-plans/{{HYPOTHESIS_ID}}-plan.json").read_text())
+hyp         = json.loads(pathlib.Path(".plurics/shared/data/hypotheses/{{HYPOTHESIS_ID}}.json").read_text())
 ```
 
 ### 2. Identify issues to fix
@@ -166,7 +166,7 @@ FIX_SUMMARY: {"hypothesis_id": "{{HYPOTHESIS_ID}}", "issues_fixed": 2, "issues_s
 ### 8. Signal completion
 
 ```python
-sig = pathlib.Path(".caam/shared/data/signals")
+sig = pathlib.Path(".plurics/shared/data/signals")
 sig.mkdir(exist_ok=True)
 (sig / "fixer-{{HYPOTHESIS_ID}}.done").write_text("ok")
 ```

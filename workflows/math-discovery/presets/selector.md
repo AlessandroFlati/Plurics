@@ -11,8 +11,8 @@ Critic reviews for the current round are injected above.
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/reviews/selector-decisions.json` | SelectorDecision[] |
-| `.caam/shared/data/signals/selector-round-{{ROUND}}.done.json` | Signal with `selected_ids` in decision |
+| `.plurics/shared/data/reviews/selector-decisions.json` | SelectorDecision[] |
+| `.plurics/shared/data/signals/selector-round-{{ROUND}}.done.json` | Signal with `selected_ids` in decision |
 
 ## Fitness Dimensions (all in [0,1])
 

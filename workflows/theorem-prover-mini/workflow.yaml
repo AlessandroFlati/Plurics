@@ -1,0 +1,92 @@
+name: theorem-prover-mini
+version: 1
+plugin: ./plugin.ts
+
+config:
+  agent_timeout_seconds: 600
+  prover_timeout_seconds: 300
+  lean_check_timeout_seconds: 180
+
+  # Fan-out — limit to 1 because Ollama serializes requests to the same model
+  max_parallel_hypotheses: 1    # Platform scope concurrency (name is historical)
+  max_parallel_theorems: 1       # Plugin-specific (same value for clarity)
+  max_concurrent_agents: 4
+
+  # Prover self-correction
+  prover_max_self_corrections: 3
+
+  # Local LLM (Goedel 32B via Ollama)
+  prover_endpoint: http://localhost:11434
+  prover_model: hf.co/mradermacher/Goedel-Prover-V2-32B-GGUF:Q4_K_M
+  prover_max_tokens: 16384
+
+  # Lean project
+  lean_project_dir: "{{WORKSPACE}}/lean-project"
+
+shared_context: |
+  You are part of a mini theorem-proving pipeline. The task is to generate
+  elementary mathematical theorems and formally verify them in Lean 4 with
+  Mathlib, using a local LLM (Goedel-Prover-V2) for proof generation.
+
+  WORKSPACE:
+    .plurics/shared/theorems/            - Theorem JSON files (T-001.json, ...)
+    .plurics/shared/lean-project/        - Incremental Lean 4 project
+    .plurics/shared/findings/            - Human-readable finding reports
+    .plurics/shared/signals/             - Completion signals
+
+  RULES:
+  1. Your inputs are PRE-LOADED in your purpose below. Do NOT cat files already shown inline.
+  2. Write outputs to .plurics/shared/ following exact paths in your instructions.
+  3. Follow the Signal Protocol EXACTLY.
+  4. All JSON output must be valid. Validate before writing.
+
+  SIGNAL PROTOCOL:
+  1. Write output files: cat > .plurics/{path}.tmp << 'EOF' ... EOF && mv .plurics/{path}.tmp .plurics/{path}
+  2. Verify JSON: python3 -c "import json; json.load(open('.plurics/{path}'))"
+  3. Compute: sha256sum .plurics/{path} | cut -d' ' -f1 ; wc -c < .plurics/{path}
+  4. Write signal file LAST via .tmp + mv.
+
+nodes:
+
+  conjecturer:
+    preset: research/theorem-prover-mini/conjecturer
+    backend: claude-code
+    model: opus
+    depends_on: []
+    branch:
+      - condition: "theorems_ready"
+        goto: formalizer
+        foreach: theorem_ids
+
+  formalizer:
+    preset: research/theorem-prover-mini/formalizer
+    backend: claude-code
+    model: opus
+    depends_on: [conjecturer]
+
+  prover:
+    preset: research/theorem-prover-mini/prover
+    backend: claude-code
+    model: opus
+    depends_on: [formalizer]
+    timeout_seconds: 600
+    max_invocations: 4  # Initial + 3 self-corrections
+
+  lean_check:
+    preset: research/theorem-prover-mini/lean-checker
+    backend: process
+    command: ["lake", "build"]
+    working_dir: "{{WORKSPACE}}/lean-project"
+    depends_on: [prover]
+    timeout_seconds: 300
+    branch:
+      - condition: "proof_valid"
+        goto: reporter
+      - condition: "proof_invalid"
+        goto: prover
+
+  reporter:
+    preset: research/theorem-prover-mini/reporter
+    backend: claude-code
+    model: sonnet
+    depends_on: [lean_check]

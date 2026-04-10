@@ -12,9 +12,9 @@ The original conjecture, proof (if proved), and verification status are injected
 
 | Path | Description |
 |---|---|
-| `.caam/shared/data/audit/{{SCOPE}}-abstraction.json` | Abstraction report |
-| `.caam/shared/lean-project/MathDiscovery/Theorems/{{SCOPE}}_generalized.lean` | If a generalization is found |
-| `.caam/shared/data/signals/abstractor-{{SCOPE}}.done.json` | Signal |
+| `.plurics/shared/data/audit/{{SCOPE}}-abstraction.json` | Abstraction report |
+| `.plurics/shared/lean-project/MathDiscovery/Theorems/{{SCOPE}}_generalized.lean` | If a generalization is found |
+| `.plurics/shared/data/signals/abstractor-{{SCOPE}}.done.json` | Signal |
 
 ## Generalization Strategies (try in order, stop at first that fails)
 
