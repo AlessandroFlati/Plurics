@@ -16,6 +16,7 @@ import { generatePurpose } from './purpose-templates.js';
 import { randomHex, writeJsonAtomic, waitForOutput, normalizeAgentPath } from './utils.js';
 import { resolvePresetContent, resolvePlaceholders } from './preset-resolver.js';
 import type { WorkflowPlugin } from './sdk.js';
+import { EvolutionaryPool } from './evolutionary-pool.js';
 import type { AgentRegistry } from '../terminal/agent-registry.js';
 import type { AgentBackend, AgentConfig } from '../terminal/agent-backend.js';
 import type { AgentBootstrap } from '../knowledge/agent-bootstrap.js';
@@ -53,6 +54,7 @@ export class DagExecutor {
   private onFinding: FindingCallback | null = null;
   private activeSubDags: number = 0;
   private paused: boolean = false;
+  private readonly pool = new EvolutionaryPool();
 
   constructor(
     workflowConfig: WorkflowConfig,
@@ -90,6 +92,11 @@ export class DagExecutor {
 
   getEventLog(): EventLogEntry[] {
     return this.eventLog;
+  }
+
+  /** Expose the evolutionary pool for plugin use. */
+  getPool(): EvolutionaryPool {
+    return this.pool;
   }
 
   async start(inputManifest?: import('./input-types.js').InputManifest | null): Promise<void> {
@@ -175,6 +182,13 @@ export class DagExecutor {
     } catch {
       throw new Error(`Cannot resume run ${existingRunId}: node-states.json not found`);
     }
+
+    // Load evolutionary pool snapshot if present
+    try {
+      const poolPath = path.join(runDir, 'pool-state.json');
+      const poolSnapshot = JSON.parse(await fs.readFile(poolPath, 'utf-8'));
+      this.pool.restore(poolSnapshot);
+    } catch { /* no pool snapshot — fresh pool is fine */ }
 
     // Rebuild node graph from snapshot (includes scoped nodes)
     for (const ns of snapshot.nodes) {
@@ -593,6 +607,8 @@ export class DagExecutor {
         previousError: node.signal?.error ?? null,
         workspacePath: this.workspacePath,
         config: this.workflowConfig.config,
+        pool: this.pool,
+        round: node.invocationCount + 1,
       });
     }
 
@@ -748,6 +764,13 @@ export class DagExecutor {
         if (override.status) signal.status = override.status;
         if (override.decision) signal.decision = override.decision;
       }
+    }
+
+    // Plugin hook: evolutionary pool update
+    if (this.plugin?.onEvaluationResult) {
+      try {
+        await this.plugin.onEvaluationResult(node.name, signal, this.pool, this.workspacePath);
+      } catch { /* pool updates are best-effort */ }
     }
 
     // Output integrity check — best-effort, does not block pipeline
@@ -1087,6 +1110,11 @@ export class DagExecutor {
       paused: this.paused,
       nodes: snapshot,
     });
+
+    // Persist evolutionary pool if it has content
+    if (this.pool.count() > 0) {
+      await writeJsonAtomic(path.join(runDir, 'pool-state.json'), this.pool.snapshot());
+    }
   }
 
   private async emitFinding(scope: string): Promise<void> {

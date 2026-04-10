@@ -1,4 +1,5 @@
 import type { NodeState, SignalFile } from './types.js';
+import type { EvolutionaryPool, PoolCandidate } from './evolutionary-pool.js';
 
 /**
  * Workflow plugin interface. Implement to inject domain-specific behavior
@@ -67,12 +68,46 @@ export interface WorkflowPlugin {
   ): Promise<RoutingResult | null>;
 
   /**
+   * Called after a signal from an evaluation node (e.g. Lean check, Falsifier).
+   * The plugin interprets the signal as an evaluation result and updates the
+   * evolutionary pool accordingly.
+   */
+  onEvaluationResult?(
+    nodeName: string,
+    signal: SignalFile,
+    pool: EvolutionaryPool,
+    workspacePath: string,
+  ): Promise<void>;
+
+  /**
+   * Called before generating the purpose of a generator node (e.g. Conjecturer)
+   * in rounds 2+. The plugin returns context from the pool (positive examples,
+   * negative examples, confirmed findings) to inject into the purpose.
+   */
+  onEvolutionaryContext?(
+    nodeName: string,
+    round: number,
+    pool: EvolutionaryPool,
+  ): EvolutionaryContext | null;
+
+  /**
    * Called when the entire workflow completes.
    */
   onWorkflowComplete?(
     workspacePath: string,
     summary: WorkflowSummary,
   ): Promise<void>;
+}
+
+export interface EvolutionaryContext {
+  /** Top-k candidates for positive context. */
+  positiveExamples: PoolCandidate[];
+  /** Falsified candidates for negative context. */
+  negativeExamples: PoolCandidate[];
+  /** Confirmed findings from previous rounds. */
+  confirmedFindings: PoolCandidate[];
+  /** Optional free-form narrative injected into the purpose. */
+  narrative?: string;
 }
 
 export interface RoutingResult {
@@ -92,6 +127,10 @@ export interface PurposeContext {
   previousError: SignalFile['error'] | null;
   workspacePath: string;
   config: Record<string, unknown>;
+  /** Evolutionary pool (empty unless the plugin uses it). */
+  pool: EvolutionaryPool;
+  /** Current round (invocation count of the calling node). */
+  round: number;
 }
 
 export interface DagNodeState {
