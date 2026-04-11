@@ -16,4 +16,5 @@ export const SEED_TOOLS: SeedToolDef[] = [
   { name: 'pandas.save_csv', relPath: './tools/pandas.save_csv/tool.yaml' },
   { name: 'stats.describe', relPath: './tools/stats.describe/tool.yaml' },
   { name: 'stats.correlation_matrix', relPath: './tools/stats.correlation_matrix/tool.yaml' },
+  { name: 'sklearn.linear_regression', relPath: './tools/sklearn.linear_regression/tool.yaml' },
 ];

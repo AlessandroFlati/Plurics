@@ -1,0 +1,25 @@
+name: sklearn.linear_regression
+version: 1
+description: Fit an OLS linear regression model using scikit-learn and return coefficients, intercept, and R-squared.
+inputs:
+  X:
+    schema: NumpyArray
+    required: true
+    description: Feature matrix of shape (n_samples, n_features).
+  y:
+    schema: NumpyArray
+    required: true
+    description: Target vector of shape (n_samples,).
+outputs:
+  coefficients:
+    schema: NumpyArray
+    description: Fitted regression coefficients, one per feature.
+  intercept:
+    schema: Float
+    description: Fitted intercept term.
+  r_squared:
+    schema: Float
+    description: Coefficient of determination (R^2) on the training data.
+implementation:
+  language: python
+  entry_point: tool.py:run
