@@ -38,12 +38,19 @@ export class RegistryClient {
   async initialize(): Promise<void> {
     if (this.initialized) return;
     this.layout.ensureLayout();
+    const dbExistedBefore = fs.existsSync(this.layout.dbPath);
     this.db.initialize();
     // Seed the schemas table with built-ins (idempotent — INSERT OR REPLACE).
     for (const s of BUILTIN_SCHEMAS) {
       this.db.insertSchema(s);
     }
     this.initialized = true;
+    if (!dbExistedBefore && fs.existsSync(this.layout.toolsDir)) {
+      const hasContent = fs.readdirSync(this.layout.toolsDir).length > 0;
+      if (hasContent) {
+        await this.rebuildFromFilesystem();
+      }
+    }
   }
 
   close(): void {
@@ -332,7 +339,57 @@ export class RegistryClient {
     throw new Error('invoke() not implemented');
   }
 
-  rebuildFromFilesystem(): Promise<void> {
-    throw new Error('rebuildFromFilesystem() not implemented');
+  async rebuildFromFilesystem(): Promise<void> {
+    if (!this.initialized) {
+      throw new Error('rebuildFromFilesystem called before initialize');
+    }
+    if (!fs.existsSync(this.layout.toolsDir)) return;
+
+    // Truncate the derived tables (registration_log is kept).
+    const raw = this.db.raw();
+    raw.exec('DELETE FROM tool_ports; DELETE FROM tools;');
+
+    const toolNames = fs.readdirSync(this.layout.toolsDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+
+    for (const toolName of toolNames) {
+      const toolDir = path.join(this.layout.toolsDir, toolName);
+      const versions = fs.readdirSync(toolDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && /^v\d+$/.test(d.name))
+        .map((d) => d.name);
+      for (const v of versions) {
+        const versionDir = path.join(toolDir, v);
+        const manifestPath = path.join(versionDir, 'tool.yaml');
+        if (!fs.existsSync(manifestPath)) continue;
+        try {
+          const manifest = parseToolManifest(fs.readFileSync(manifestPath, 'utf8'));
+          const errors = validateToolManifest(manifest, this.schemas);
+          if (errors.length > 0) continue;
+          const record: ToolRecord = {
+            name: manifest.name,
+            version: manifest.version,
+            description: manifest.description,
+            category: manifest.category ?? null,
+            tags: manifest.tags ?? [],
+            inputs: this.portsFromManifest(manifest.inputs, 'input'),
+            outputs: this.portsFromManifest(manifest.outputs, 'output'),
+            entryPoint: manifest.implementation.entryPoint,
+            language: 'python',
+            requires: manifest.implementation.requires ?? [],
+            stability: manifest.metadata?.stability ?? null,
+            costClass: manifest.metadata?.costClass ?? null,
+            author: manifest.metadata?.author ?? null,
+            createdAt: manifest.metadata?.createdAt ?? new Date().toISOString(),
+            toolHash: hashToolDirectory(versionDir),
+            status: 'active',
+            directory: versionDir,
+          };
+          this.db.insertTool(record, 0, 0, false);
+        } catch {
+          // Skip malformed versions; operator can inspect logs/registration.log.
+        }
+      }
+    }
   }
 }

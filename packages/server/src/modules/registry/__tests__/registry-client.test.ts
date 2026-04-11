@@ -309,3 +309,66 @@ implementation:
     expect(rc.findConsumers('DataFrame').map((t) => t.name)).toEqual(['c']);
   });
 });
+
+describe('RegistryClient — rebuildFromFilesystem', () => {
+  let tmpRoot: string;
+  let sourceDir: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plurics-rc-rebuild-'));
+    sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plurics-src-rebuild-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(sourceDir, { recursive: true, force: true });
+  });
+
+  it('repopulates the DB after registry.db is deleted', async () => {
+    const dir = path.join(sourceDir, 'alpha');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'tool.yaml'),
+      `name: alpha
+version: 1
+description: d
+inputs:
+  a:
+    schema: Integer
+    required: true
+outputs:
+  r:
+    schema: Integer
+implementation:
+  language: python
+  entry_point: tool.py:run
+`,
+    );
+    fs.writeFileSync(path.join(dir, 'tool.py'), 'def run(a):\n    return {"r": a}\n');
+
+    const rc1 = new RegistryClient({ rootDir: tmpRoot });
+    await rc1.initialize();
+    const regResult = await rc1.register({ manifestPath: path.join(dir, 'tool.yaml'), caller: 'human' });
+    expect(regResult.success).toBe(true);
+    rc1.close();
+
+    // Delete the DB but leave the tools directory intact.
+    fs.rmSync(path.join(tmpRoot, 'registry.db'), { force: true });
+
+    const rc2 = new RegistryClient({ rootDir: tmpRoot });
+    await rc2.initialize();
+    const got = rc2.get('alpha');
+    expect(got).not.toBeNull();
+    expect(got?.version).toBe(1);
+    rc2.close();
+  });
+
+  it('rebuildFromFilesystem is idempotent when called explicitly', async () => {
+    const rc = new RegistryClient({ rootDir: tmpRoot });
+    await rc.initialize();
+    await rc.rebuildFromFilesystem();
+    await rc.rebuildFromFilesystem();
+    expect(rc.list()).toEqual([]);
+    rc.close();
+  });
+});
