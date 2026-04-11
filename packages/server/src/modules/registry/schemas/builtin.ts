@@ -70,6 +70,22 @@ export const BUILTIN_SCHEMAS: readonly SchemaDef[] = [
     encoding: 'pickle_b64',
     description: 'Multi-dimensional numeric array.',
     source: 'builtin',
+    summarizer(payload: unknown) {
+      try {
+        if (!payload || typeof payload !== 'object') return null;
+        const p = payload as Record<string, unknown>;
+        return {
+          schema: 'NumpyArray',
+          ndim: typeof p['ndim'] === 'number' ? p['ndim'] : undefined,
+          size: typeof p['size'] === 'number' ? p['size'] : undefined,
+          dtype: typeof p['dtype'] === 'string' ? p['dtype'] : undefined,
+          shape: Array.isArray(p['shape']) ? (p['shape'] as [number, number]) : undefined,
+          sample: Array.isArray(p['sample']) ? (p['sample'] as unknown[]) : undefined,
+        };
+      } catch {
+        return null;
+      }
+    },
   },
   {
     name: 'DataFrame',
@@ -78,6 +94,23 @@ export const BUILTIN_SCHEMAS: readonly SchemaDef[] = [
     encoding: 'pickle_b64',
     description: 'Generic pandas DataFrame.',
     source: 'builtin',
+    summarizer(payload: unknown) {
+      try {
+        if (!payload || typeof payload !== 'object') return null;
+        const p = payload as Record<string, unknown>;
+        return {
+          schema: 'DataFrame',
+          shape: Array.isArray(p['shape']) ? (p['shape'] as [number, number]) : undefined,
+          columns: Array.isArray(p['columns']) ? (p['columns'] as string[]) : undefined,
+          head: Array.isArray(p['head']) ? (p['head'] as Record<string, unknown>[]) : undefined,
+          stats: p['stats'] && typeof p['stats'] === 'object'
+            ? (p['stats'] as Record<string, unknown>)
+            : undefined,
+        };
+      } catch {
+        return null;
+      }
+    },
   },
 ];
 

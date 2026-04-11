@@ -1,4 +1,4 @@
-import type { SchemaDef, SchemaEncoding } from '../types.js';
+import type { SchemaDef, SchemaEncoding, Summarizer } from '../types.js';
 import { BUILTIN_SCHEMAS } from './builtin.js';
 
 export class SchemaRegistry {
@@ -29,5 +29,10 @@ export class SchemaRegistry {
       throw new Error(`unknown schema: ${name}`);
     }
     return s.encoding;
+  }
+
+  getSummarizer(name: string): Summarizer | null {
+    const s = this.byName.get(name);
+    return s?.summarizer ?? null;
   }
 }

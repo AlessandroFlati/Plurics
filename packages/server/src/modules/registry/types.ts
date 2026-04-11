@@ -12,6 +12,9 @@ export type SchemaSource = 'builtin' | 'user';
 
 // ---------- Schemas ----------
 
+/** Function that turns a runner-computed payload into a typed summary. */
+export type Summarizer = (payload: unknown) => ValueSummary | null;
+
 export interface SchemaDef {
   name: string;
   kind: SchemaKind;
@@ -19,6 +22,8 @@ export interface SchemaDef {
   encoding: SchemaEncoding;
   description: string | null;
   source: SchemaSource;
+  /** Optional: convert runner-emitted summary payload to a typed ValueSummary. */
+  summarizer?: Summarizer;
 }
 
 // ---------- Tool manifests (post-parse, pre-validation) ----------
