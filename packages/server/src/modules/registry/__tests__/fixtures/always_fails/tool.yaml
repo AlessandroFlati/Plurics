@@ -1,0 +1,13 @@
+name: test.always_fails
+version: 1
+description: Always raises.
+inputs:
+  message:
+    schema: String
+    required: true
+outputs:
+  never:
+    schema: String
+implementation:
+  language: python
+  entry_point: tool.py:run

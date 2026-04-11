@@ -1,0 +1,13 @@
+name: test.slow
+version: 1
+description: Sleeps for N seconds.
+inputs:
+  seconds:
+    schema: Integer
+    required: true
+outputs:
+  done:
+    schema: Boolean
+implementation:
+  language: python
+  entry_point: tool.py:run

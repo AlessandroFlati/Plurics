@@ -1,0 +1,12 @@
+name: test.bad_output
+version: 1
+description: Returns a dict missing a declared output.
+inputs: {}
+outputs:
+  left:
+    schema: Integer
+  right:
+    schema: Integer
+implementation:
+  language: python
+  entry_point: tool.py:run

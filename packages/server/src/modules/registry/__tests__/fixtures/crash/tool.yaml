@@ -1,0 +1,10 @@
+name: test.crash
+version: 1
+description: Exits with a non-standard code.
+inputs: {}
+outputs:
+  never:
+    schema: Integer
+implementation:
+  language: python
+  entry_point: tool.py:run

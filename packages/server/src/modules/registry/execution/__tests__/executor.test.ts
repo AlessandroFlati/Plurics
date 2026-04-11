@@ -97,3 +97,67 @@ describe.skipIf(!pythonAvailable())('Executor — happy path (integration)', () 
     expect(typeof envelope._data).toBe('string');
   });
 });
+
+describe.skipIf(!pythonAvailable())('Executor — error paths (integration)', () => {
+  let tmpRoot: string;
+  let rc: RegistryClient;
+
+  beforeEach(async () => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plurics-exec-err-'));
+    rc = new RegistryClient({ rootDir: tmpRoot });
+    await rc.initialize();
+  });
+
+  afterEach(() => {
+    rc.close();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  async function register(name: string): Promise<void> {
+    const res = await rc.register({
+      manifestPath: path.join(FIXTURES, name, 'tool.yaml'),
+      caller: 'human',
+    });
+    if (!res.success) {
+      throw new Error(`register ${name} failed: ${JSON.stringify(res.errors)}`);
+    }
+  }
+
+  it('returns runtime error when the tool raises', async () => {
+    await register('always_fails');
+    const result = await rc.invoke({ toolName: 'test.always_fails', inputs: { message: 'x' } });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.category).toBe('runtime');
+    expect(result.error.message).toMatch(/boom/);
+  });
+
+  it('returns timeout when the tool exceeds its deadline', async () => {
+    await register('slow');
+    const result = await rc.invoke({
+      toolName: 'test.slow',
+      inputs: { seconds: 5 },
+      timeoutMs: 500,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.category).toBe('timeout');
+  });
+
+  it('returns output_mismatch when declared outputs are missing', async () => {
+    await register('bad_output');
+    const result = await rc.invoke({ toolName: 'test.bad_output', inputs: {} });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.category).toBe('output_mismatch');
+    expect(result.error.message).toMatch(/right/);
+  });
+
+  it('returns subprocess_crash when the runner exits unexpectedly', async () => {
+    await register('crash');
+    const result = await rc.invoke({ toolName: 'test.crash', inputs: {} });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.category).toBe('subprocess_crash');
+  });
+});
