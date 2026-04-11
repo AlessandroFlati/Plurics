@@ -301,27 +301,32 @@ export class RegistryClient {
     }
   }
 
+  get(name: string, version?: number): ToolRecord | null {
+    const record = this.db.getTool(name, version);
+    return record ? this.withDirectory(record) : null;
+  }
+
+  getAllVersions(name: string): ToolRecord[] {
+    return this.db.getAllVersions(name).map((r) => this.withDirectory(r));
+  }
+
+  list(filters?: ListFilters): ToolRecord[] {
+    return this.db.listTools(filters).map((r) => this.withDirectory(r));
+  }
+
+  findProducers(schemaName: string): ToolRecord[] {
+    return this.db.findProducers(schemaName).map((r) => this.withDirectory(r));
+  }
+
+  findConsumers(schemaName: string): ToolRecord[] {
+    return this.db.findConsumers(schemaName).map((r) => this.withDirectory(r));
+  }
+
+  private withDirectory(record: ToolRecord): ToolRecord {
+    return { ...record, directory: this.layout.toolVersionDir(record.name, record.version) };
+  }
+
   // Stubs filled in by subsequent tasks.
-
-  get(_name: string, _version?: number): ToolRecord | null {
-    throw new Error('get() not implemented');
-  }
-
-  getAllVersions(_name: string): ToolRecord[] {
-    throw new Error('getAllVersions() not implemented');
-  }
-
-  list(_filters?: ListFilters): ToolRecord[] {
-    throw new Error('list() not implemented');
-  }
-
-  findProducers(_schemaName: string): ToolRecord[] {
-    throw new Error('findProducers() not implemented');
-  }
-
-  findConsumers(_schemaName: string): ToolRecord[] {
-    throw new Error('findConsumers() not implemented');
-  }
 
   invoke(_request: InvocationRequest): Promise<InvocationResult> {
     throw new Error('invoke() not implemented');

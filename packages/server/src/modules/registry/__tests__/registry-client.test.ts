@@ -213,3 +213,99 @@ implementation:
     expect(stagingEntries).toEqual([]);
   });
 });
+
+describe('RegistryClient — discovery', () => {
+  let tmpRoot: string;
+  let rc: RegistryClient;
+  let sourceDir: string;
+
+  beforeEach(async () => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plurics-rc-disc-'));
+    sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plurics-src-disc-'));
+    rc = new RegistryClient({ rootDir: tmpRoot });
+    await rc.initialize();
+  });
+
+  afterEach(() => {
+    rc.close();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(sourceDir, { recursive: true, force: true });
+  });
+
+  async function registerSimple(name: string, version: number, opts: { inputSchema?: string; outputSchema?: string; category?: string } = {}): Promise<void> {
+    const dir = path.join(sourceDir, `${name}-v${version}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const cat = opts.category ? `\ncategory: ${opts.category}` : '';
+    fs.writeFileSync(
+      path.join(dir, 'tool.yaml'),
+      `name: ${name}
+version: ${version}
+description: d${cat}
+inputs:
+  a:
+    schema: ${opts.inputSchema ?? 'Integer'}
+    required: true
+outputs:
+  r:
+    schema: ${opts.outputSchema ?? 'Integer'}
+implementation:
+  language: python
+  entry_point: tool.py:run
+`,
+    );
+    fs.writeFileSync(path.join(dir, 'tool.py'), 'def run(a):\n    return {"r": a}\n');
+    const result = await rc.register({ manifestPath: path.join(dir, 'tool.yaml'), caller: 'human' });
+    if (!result.success) {
+      throw new Error(`fixture registration failed: ${JSON.stringify(result.errors)}`);
+    }
+  }
+
+  it('get() returns null for unknown tools', async () => {
+    expect(rc.get('nope')).toBeNull();
+  });
+
+  it('get() returns the latest active version', async () => {
+    await registerSimple('alpha', 1);
+    await registerSimple('alpha', 2);
+    const got = rc.get('alpha');
+    expect(got?.version).toBe(2);
+    expect(got?.directory.endsWith(path.join('tools', 'alpha', 'v2'))).toBe(true);
+  });
+
+  it('get() honours explicit version', async () => {
+    await registerSimple('alpha', 1);
+    await registerSimple('alpha', 2);
+    expect(rc.get('alpha', 1)?.version).toBe(1);
+  });
+
+  it('getAllVersions returns all versions newest-first', async () => {
+    await registerSimple('alpha', 1);
+    await registerSimple('alpha', 2);
+    const versions = rc.getAllVersions('alpha').map((t) => t.version);
+    expect(versions).toEqual([2, 1]);
+  });
+
+  it('list() returns all active tools', async () => {
+    await registerSimple('a', 1);
+    await registerSimple('b', 1);
+    expect(rc.list().map((t) => t.name).sort()).toEqual(['a', 'b']);
+  });
+
+  it('list() filters by category', async () => {
+    await registerSimple('a', 1, { category: 'x' });
+    await registerSimple('b', 1, { category: 'y' });
+    expect(rc.list({ category: 'x' }).map((t) => t.name)).toEqual(['a']);
+  });
+
+  it('findProducers returns tools producing the given schema', async () => {
+    await registerSimple('p', 1, { outputSchema: 'NumpyArray' });
+    await registerSimple('q', 1, { outputSchema: 'Integer' });
+    expect(rc.findProducers('NumpyArray').map((t) => t.name)).toEqual(['p']);
+  });
+
+  it('findConsumers returns tools consuming the given schema', async () => {
+    await registerSimple('c', 1, { inputSchema: 'DataFrame', outputSchema: 'Integer' });
+    await registerSimple('d', 1);
+    expect(rc.findConsumers('DataFrame').map((t) => t.name)).toEqual(['c']);
+  });
+});
