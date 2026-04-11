@@ -1,0 +1,168 @@
+name: sequence-explorer
+version: 1
+plugin: ./plugin.ts
+
+config:
+  agent_timeout_seconds: 600
+
+  # Evolutionary loop
+  max_rounds: 5                        # Max conjecture rounds per sequence
+  conjectures_per_round: 5             # Generated per round
+  top_k_positive_context: 3            # Top-k from pool → conjecturer context
+  negative_examples: 2                 # Falsified → conjecturer context
+  fitness_success_threshold: 0.9       # Stop if any conjecture exceeds this
+  stagnation_rounds: 2                 # Stop if max fitness doesn't improve for N rounds
+
+  # Scope + agent concurrency
+  max_parallel_scopes: 3
+  max_concurrent_agents: 8
+
+  # Local LLM (quick_filter)
+  local_llm_endpoint: http://localhost:11434
+  local_llm_model: qwen3.5:35b
+
+  # OEIS target (override via input manifest or config)
+  target_oeis_id: "A000045"            # Fibonacci as smoke test default
+  known_terms_limit: 30                # Use first N known terms for verification
+  extrapolation_count: 20              # Extend a(N..N+extrapolation_count) when empirical match
+
+  # Verifier sandbox limits
+  verifier_timeout_seconds: 10         # Hard wall-clock limit per verifier invocation
+  verifier_max_memory_mb: 512
+
+shared_context: |
+  You are part of an evolutionary discovery pipeline for integer sequences.
+  Given a target OEIS sequence, the pipeline generates candidate formulas,
+  verifies them empirically against known terms, cross-checks against the
+  OEIS catalog for novelty, and iterates over multiple rounds with
+  evolutionary feedback.
+
+  WORKSPACE:
+    .plurics/shared/oeis-manifest.json   - Target sequence fetched from OEIS
+    .plurics/shared/data-profile.json    - Statistical profile produced by profiler
+    .plurics/shared/conjectures/         - Conjecture JSON files (C-001.json, ...)
+    .plurics/shared/formalized/          - Python implementations per conjecture
+    .plurics/shared/verification/        - Verifier and cross-check results
+    .plurics/shared/reviews/             - Critic reviews per conjecture
+    .plurics/shared/findings/            - Final finding report for the winning conjecture
+    .plurics/shared/pool-state.json      - Evolutionary pool snapshot
+
+  RULES:
+  1. Your inputs are PRE-LOADED in your purpose below. Do NOT cat files shown inline.
+  2. Write outputs to .plurics/shared/ following exact paths in your instructions.
+  3. Follow the Signal Protocol EXACTLY.
+  4. All JSON output must be valid. Validate before writing.
+  5. On unrecoverable error, still write a signal with status "failure".
+
+  SIGNAL PROTOCOL:
+  1. Write output files: cat > .plurics/{path}.tmp << 'EOF' ... EOF && mv .plurics/{path}.tmp .plurics/{path}
+  2. Verify JSON: python3 -c "import json; json.load(open('.plurics/{path}'))"
+  3. Compute: sha256sum .plurics/{path} | cut -d' ' -f1 ; wc -c < .plurics/{path}
+  4. Write signal file LAST via .tmp + mv.
+
+# ===========================================================================
+# Phase 0 — Acquisition
+# ===========================================================================
+
+nodes:
+
+  sequence_fetch:
+    preset: sequence-explorer/sequence-fetcher
+    backend: process
+    command: ["py", ".plurics/tools/sequence_fetcher.py"]
+    working_dir: "{{WORKSPACE}}"
+    depends_on: []
+    timeout_seconds: 120
+
+# ===========================================================================
+# Phase 1 — Profiling
+# ===========================================================================
+
+  profiler:
+    preset: sequence-explorer/profiler
+    backend: claude-code
+    model: sonnet
+    depends_on: [sequence_fetch]
+
+# ===========================================================================
+# Phase 2 — Discovery loop (multi-round via branch back from selector)
+# ===========================================================================
+
+  conjecturer:
+    preset: sequence-explorer/conjecturer
+    backend: claude-code
+    model: opus
+    depends_on: [profiler]
+    max_invocations: 5                 # max_rounds
+    branch:
+      - condition: "conjectures_ready"
+        goto: formalizer
+        foreach: conjecture_ids
+
+# ---- per-conjecture fan-out (scope = conjecture ID) ----
+
+  formalizer:
+    preset: sequence-explorer/formalizer
+    backend: claude-code
+    model: sonnet
+    depends_on: [conjecturer]
+    max_invocations: 50                # Upper bound for all rounds combined
+
+  quick_filter:
+    preset: sequence-explorer/quick-filter
+    backend: local-llm
+    endpoint: http://localhost:11434
+    provider: ollama
+    disable_thinking: true
+    model: qwen3.5:35b
+    max_tokens: 256
+    depends_on: [formalizer]
+    max_invocations: 50
+    timeout_seconds: 60
+
+  verifier:
+    preset: sequence-explorer/verifier
+    backend: process
+    command: ["py", ".plurics/tools/verifier.py"]
+    working_dir: "{{WORKSPACE}}"
+    depends_on: [quick_filter]
+    max_invocations: 50
+    timeout_seconds: 60
+
+  cross_checker:
+    preset: sequence-explorer/cross-checker
+    backend: process
+    command: ["py", ".plurics/tools/cross_checker.py"]
+    working_dir: "{{WORKSPACE}}"
+    depends_on: [verifier]
+    max_invocations: 50
+    timeout_seconds: 60
+
+  critic:
+    preset: sequence-explorer/critic
+    backend: claude-code
+    model: opus
+    depends_on: [cross_checker]
+    max_invocations: 50
+
+# ===========================================================================
+# Phase 3 — Selection & synthesis
+# ===========================================================================
+
+  selector:
+    preset: sequence-explorer/selector
+    backend: claude-code
+    model: opus
+    depends_on_all: [critic]           # Wait for all conjectures in current round
+    max_invocations: 5                 # Once per round
+    branch:
+      - condition: "converged"
+        goto: reporter
+      - condition: "continue"
+        goto: conjecturer              # Loop back for another round
+
+  reporter:
+    preset: sequence-explorer/reporter
+    backend: claude-code
+    model: opus
+    depends_on: [selector]

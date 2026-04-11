@@ -1,6 +1,6 @@
 # Plurics — Architecture Document
 
-Last updated: 2026-04-10 21:10 UTC
+Last updated: 2026-04-11 10:59 UTC
 
 ## Why Plurics
 
@@ -45,6 +45,7 @@ implements domain-specific behavior.
 │   workflows/research-swarm/       — Hypothesis discovery      │
 │   workflows/math-discovery/       — Financial + formal proof  │
 │   workflows/theorem-prover-mini/  — Lean 4 theorem proving    │
+│   workflows/sequence-explorer/    — OEIS evolutionary search  │
 │   workflows/smoke-test/           — Backend validation        │
 └───────────────────────────────────────────────────────────────┘
               ▲
@@ -425,12 +426,17 @@ Each workflow instance lives in `workflows/{name}/` and is self-contained:
 workflows/{instance-name}/
   workflow.yaml     # DAG definition, config, node backends
   plugin.ts         # WorkflowPlugin implementation
-  presets/          # Agent preset markdown files (copied to workflows/presets/research/{name}/ for resolution)
   schemas/          # Domain TypeScript types (optional)
+  python/           # Python scripts for `process` backend nodes (optional)
   lean-template/    # Lean 4 project template (if applicable)
 ```
 
-Four reference workflows ship with Plurics:
+Agent presets (markdown files keyed by `preset: <name>` in YAML) are resolved
+from a shared `workflows/presets/` tree, nested by workflow family, e.g.
+`workflows/presets/sequence-explorer/conjecturer.md`. The `preset-resolver`
+walks this tree at server startup and seeds the `agent_presets` table.
+
+Five reference workflows ship with Plurics:
 
 ### 3.1 Research Swarm — `workflows/research-swarm/`
 
@@ -549,7 +555,203 @@ event delivered the finding to the UI in real time.
   scoped sub-DAGs when the local-llm backend is shared (Ollama processes one
   request per model at a time).
 
-### 3.4 Smoke Test — `workflows/smoke-test/`
+### 3.4 Sequence Explorer — `workflows/sequence-explorer/`
+
+**Purpose**: evolutionary discovery of closed-form rules / recurrences for
+integer sequences published in the [OEIS](https://oeis.org). A target OEIS
+ID is fetched, profiled, then a round-based generator/verifier loop evolves
+candidate formulas scored on empirical match, novelty, elegance, and
+formalizability. The winning conjecture ships with extrapolated terms, a
+cross-check against the OEIS catalog, and a human-readable finding report.
+
+**Pipeline**: 10-node DAG with a round-loop back-edge:
+
+```
+sequence_fetch [process]           ← OEIS API fetch + manifest
+  ↓
+profiler [claude-code/sonnet]      ← growth + residues + recurrence fits
+  ↓
+conjecturer [claude-code/opus]     ← batch of N candidate rules
+  ↓ (fan-out on decision.conjecture_ids)
+┌────────────────────────────────────────────────┐
+│ per-conjecture scope: C-001, C-002, …          │
+│   formalizer [claude-code/sonnet]              │
+│     ↓                                          │
+│   quick_filter [local-llm/ollama qwen3.5:35b]  │
+│     ↓                                          │
+│   verifier [process: py verifier.py]           │
+│     ↓                                          │
+│   cross_checker [process: py cross_checker.py] │
+│     ↓                                          │
+│   critic [claude-code/opus]                    │
+└────────────────────────────────────────────────┘
+  ↓ (depends_on_all on critic — waits for every scope to finish)
+selector [claude-code/opus]
+  ├─ decision.status == "converged" ──► reporter
+  └─ decision.status == "continue"  ──► conjecturer (next round)
+```
+
+**Config knobs** (workflow.yaml `config` block): `max_rounds`,
+`conjectures_per_round`, `top_k_positive_context`, `negative_examples`,
+`fitness_success_threshold`, `stagnation_rounds`, `verifier_timeout_seconds`,
+`target_oeis_id`, `known_terms_limit`, `extrapolation_count`,
+`max_parallel_scopes`, `max_concurrent_agents`, `local_llm_endpoint`,
+`local_llm_model`.
+
+**Mixed backends**: Sequence Explorer uses every backend type for a clean
+cost/latency/quality split:
+- `claude-code` (Opus): Conjecturer (creative), Critic (evaluation), Selector
+  (round control), Reporter (synthesis)
+- `claude-code` (Sonnet): Profiler, Formalizer (mechanical Python generation)
+- `local-llm` (Ollama, `qwen3.5:35b` with `disable_thinking: true`):
+  quick_filter — a cheap sanity pass that rejects obviously broken Python
+  before CPU is spent on the subprocess verifier
+- `process`: `sequence_fetch` (OEIS fetcher), `verifier` (subprocess sandbox
+  executing the formalized `sequence(n)` function against known terms),
+  `cross_checker` (OEIS novelty lookup)
+
+**Evolutionary pool**: integrates Layer 2's `EvolutionaryPool` via the
+plugin's `onEvaluationResult` and `onEvolutionaryContext` hooks. Fitness
+dimensions and default weights:
+
+| Dimension | Weight | Source |
+|---|---|---|
+| `empirical` | 0.4 | verifier.py — fraction of known OEIS terms matched |
+| `novelty` | 0.3 | cross_checker.py verdict (novel 1.0 / related 0.6 / rediscovery 0.1) |
+| `elegance` | 0.2 | heuristic on formalized Python (lines, conditionals, imports) |
+| `provability` | 0.1 | conjecture type heuristic (closed_form 0.9 .. asymptotic 0.3) |
+
+**Lineage tracking**: in round ≥ 2 the plugin injects top-k positive examples
+(confirmed or high-fitness) and k negative examples (falsified) into the
+conjecturer purpose, and instructs it to set `parent_ids` on any conjecture
+built from a parent. `getLineage(id)` walks the parent chain at report time.
+
+**Python tooling as a process backend**: `sequence_fetch`, `verifier`, and
+`cross_checker` are deterministic Python scripts (not LLMs). The plugin
+copies them from `workflows/sequence-explorer/python/` into
+`{workspace}/.plurics/tools/` on `onWorkflowStart` and `onWorkflowResume`, so
+each process invocation reads fresh from disk. Live patches to these scripts
+(bug fix → `cp` to `.plurics/tools/`) propagate to all scoped sub-DAGs in
+subsequent rounds without restarting the run.
+
+**Safety model for the verifier**: formalizer output is dynamically loaded
+by the child subprocess (`importlib.util.spec_from_file_location`) and
+executed with a 10-second wall clock. `socket.socket` is stubbed to a
+no-op (best-effort; Windows has no `resource.setrlimit`). The child
+captures exceptions per term rather than crashing, so a single bad
+`sequence(n)` call is recorded as `first_mismatch_*` fields instead of
+taking down the node.
+
+**E2E validation** (2026-04-11, target A000045 / Fibonacci):
+
+| Stage | Wall-clock | Notes |
+|---|---|---|
+| `sequence_fetch` | 4 s | First run; OEIS fetch + cache |
+| `profiler` (Sonnet) | 283 s | Growth analysis + recurrence fits + leads |
+| `conjecturer` round 1 (Opus) | 92 s | 5 conjectures C-001..C-005 |
+| Fan-out formalizer (Sonnet × 5) | ~50 s first, ~23 min last (serialized) | Ollama's single-model serialization propagates back through the fan-out |
+| `quick_filter` × 5 (Qwen 3.5:35b) | ~35 s each | All 5 accepted |
+| `verifier` × 5 (Python subprocess) | ~6 s each | All 5: `empirical_score = 1.0` against all 30 known Fibonacci terms |
+| `cross_checker` × 5 (OEIS API) | ~55 s each | — |
+| `critic` × 5 (Opus) | ~60 s each | All 5 rated `keep`, all 5 rediscovery of A000045 |
+| **Round 1 total** | **~27 min** | Before selector decision |
+
+**Bugs surfaced and fixed during the run** — four issues across all three
+layers, the most severe of which was a latent Layer 1 bug that had been
+invisible until Sequence Explorer became the first workflow to fan out a
+`process` backend through a scoped sub-DAG:
+
+1. **Layer 1 — scoped-node backend config lost** (`dag-executor.ts:648`):
+   when spawning a scoped node like `cross_checker.C-002`, `spawnAgent`
+   looked up the YAML node definition by the full scoped name, which does
+   not exist as a YAML key (only the base name `cross_checker` does). The
+   lookup returned `undefined`, `backendType` fell through to the
+   `'claude-code'` default, and the scheduler silently spawned every
+   scoped `verifier` / `cross_checker` / `quick_filter` / `formalizer` as a
+   Claude Code PTY session instead of the backend declared in the YAML.
+   Symptoms: per-scope log files 80–170 KB of terminal escape sequences
+   instead of 172 B of Python stdout; Claude Opus agents dutifully reading
+   the `process` preset ("the platform runs this script on your behalf")
+   and then executing `py .plurics/tools/cross_checker.py` manually via
+   shell tools anyway, producing the correct JSON but with non-trivial
+   latency and the occasional orphaned `.tmp` signal when the shell
+   mv step was interrupted. Fix: strip the scope suffix before the YAML
+   lookup and prefer the base-name definition. The same base-name lookup
+   bug was present at `dag-executor.ts:470` for `depends_on_all`
+   evaluation; fixed in the same commit. `research-swarm` and
+   `math-discovery` were unaffected because their fan-out nodes are all
+   `claude-code` backends, so the fallback happened to return the right
+   value by coincidence; this bug had been latent since the fan-out
+   feature landed.
+
+2. **Layer 3 — `sequence_fetcher.py` crash** (`'list' object has no
+   attribute 'get'`): the OEIS JSON endpoint returns a bare top-level
+   `list`, not a `{"results": [...]}` wrapper. Fix: handle both shapes.
+   Retryable via signal, so two auto-retries consumed before the fix
+   landed.
+
+3. **Layer 3 — `cross_checker.py` crash** (same signature, same root
+   cause): the cross-checker wrote `verdict: "inconclusive"` with
+   `notes: "OEIS query error: 'list' object has no attribute 'get'"` — the
+   pipeline kept flowing because cross-check failures are expected (network
+   errors degrade gracefully), but novelty scores for all 5 conjectures
+   defaulted to the 0.5 inconclusive fallback instead of 0.1 rediscovery.
+   Fix: same list/dict dispatch as the fetcher.
+
+4. **Layer 3 — `verifier.py` symbolic-eval noise**: every
+   verification.json had a non-null `sympy_error` because the verifier was
+   calling `sequence(sympy.Symbol('n'))` to extract a closed form from the
+   formalizer-generated Python. Three failure modes observed across the 5
+   candidates:
+   - `RecursionError: maximum recursion depth exceeded` — for `lru_cache`-d
+     recursive implementations where the `if n == 0` base case never
+     triggers on a symbol
+   - `TypeError: Cannot round symbolic expression` — for closed-form
+     implementations that use `int(round(...))` (e.g. Binet's formula)
+   - `TypeError: 'Add' object cannot be interpreted as an integer` — for
+     implementations using `math.comb(2*n, n)` or `range()` on a symbol
+
+   The symbolic eval was a best-effort nice-to-have that failed ~100% of
+   the time because it was in direct tension with the formalizer's style
+   rules (`lru_cache`, `int(round(...))`, `math.comb`). It added no value:
+   empirical score already proves correctness, the cross-checker already
+   handles novelty, and the critic already scores elegance from the Python
+   source. Fix: remove the symbolic eval block entirely and drop
+   `sympy_closed_form` / `sympy_error` from both the runtime schema and
+   `schemas/verification.ts`.
+
+**Live-patching policy** (validated during this run): because the verifier
+and cross_checker run as fresh subprocesses per scope, patching the
+installed scripts (`test-data/.plurics/tools/*.py`) during the run is safe
+— all subsequent scope invocations in later rounds pick up the fix without
+a restart. The plugin's `installPythonTools` (called from
+`onWorkflowStart` and `onWorkflowResume`) handles the normal case of
+re-syncing from `workflows/sequence-explorer/python/` at (re)startup. This
+policy does not apply to Layer 1 fixes like the scoped-node backend bug,
+which required a TypeScript edit and `tsx watch` hot reload of the server.
+
+**Observed design wins from this run**:
+- The `depends_on_all` aggregator on `critic` → `selector` is the right
+  abstraction for round boundaries: once the Layer 1 bug is fixed, the
+  selector will only fire after every scoped critic completes. The wiring
+  works even when fan-out is serialized behind Ollama's single-model queue.
+- The plugin's `onPurposeGenerate` tiered injection (OEIS manifest for
+  profiler, target + profile + lineage for conjecturer, scope artifacts
+  for critic, pool summary for selector, winner artifacts for reporter)
+  kept agent purposes bounded even as the pool grew.
+- The three-layer separation made root-causing tractable: each bug's fix
+  site was unambiguous and local. The Layer 1 fix was 6 lines in
+  `spawnAgent`; the Layer 3 fixes were 3–15 lines per Python file; no
+  cross-layer shims were needed.
+
+**Run outcome**: the 4-hour run hit the safety timeout with 4/5 critics
+completed in round 1 (C-001, C-003, C-004, C-005 all `keep` / rediscovery)
+and the selector still blocked waiting on `critic.C-002`, which was itself
+blocked behind `cross_checker.C-002` stuck in `running` with an orphaned
+`.tmp` signal — all downstream effects of the Layer 1 bug. The Layer 1
+fix lands after the run; the next invocation will be the clean E2E.
+
+### 3.5 Smoke Test — `workflows/smoke-test/`
 
 **Purpose**: minimal validation of the three backend types end-to-end.
 

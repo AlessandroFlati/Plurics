@@ -14,7 +14,7 @@ The name is a nod to Multics: where Multics was a **multi**plexed information an
 
 ## Reference workflows
 
-Four example instances ship with the repo:
+Five example instances ship with the repo:
 
 | Workflow | Purpose | Pipeline |
 |---|---|---|
@@ -22,6 +22,7 @@ Four example instances ship with the repo:
 | `theorem-prover-mini` | Generator → formalizer → prover → Lean verifier → reporter | 5 nodes, ~5 min per theorem |
 | `research-swarm` | Autonomous statistical research on tabular data | 14 nodes, ~1h on real datasets |
 | `math-discovery` | Financial time-series + formal proof in Lean (gated by confirmed findings) | 14 nodes, 3 phases, requires local LLM prover |
+| `sequence-explorer` | Evolutionary discovery loop for OEIS integer sequences | 10 nodes, round-loop with pool lineage, ~27 min/round for 5 conjectures |
 
 ## Architecture
 
@@ -45,6 +46,7 @@ To run a workflow end-to-end, start the server and launch one of the test runner
 cd test-data && node run-smoke.js               # Validates all three backends
 cd test-data && node run-prover-mini.js         # Proves an elementary theorem in Lean
 cd test-data && node run-e2e.js                 # Runs research-swarm on synthetic data
+cd test-data && node run-sequence.js            # Sequence Explorer on OEIS A000045 (Fibonacci)
 ```
 
 ## Requirements

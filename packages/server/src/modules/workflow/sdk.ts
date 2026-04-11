@@ -65,6 +65,7 @@ export interface WorkflowPlugin {
     nodeName: string,
     signal: SignalFile,
     branchRules: Array<{ condition: string; goto: string; foreach?: string }>,
+    workspacePath: string,
   ): Promise<RoutingResult | null>;
 
   /**

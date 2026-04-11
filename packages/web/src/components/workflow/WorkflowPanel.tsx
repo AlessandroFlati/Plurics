@@ -138,6 +138,7 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
   const [description, setDescription] = useState('');
   const [showSourceModal, setShowSourceModal] = useState(false);
   const [resumableRuns, setResumableRuns] = useState<ResumableRun[]>([]);
+  const [yamlPath, setYamlPath] = useState<string | null>(null);
   const { yaml, runId, summary, error } = workflowState;
 
   useEffect(() => {
@@ -165,6 +166,7 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
     ws.send({
       type: 'workflow:start',
       yamlContent: yaml,
+      yamlPath: yamlPath ?? undefined,
       workspacePath,
       inputManifest: sources.length > 0 ? inputManifest : undefined,
     });
@@ -209,6 +211,7 @@ export function WorkflowPanel({ ws, workspacePath, workflowState, onStateChange 
               const res = await fetch(`/api/workflow-files/${encodeURIComponent(file)}`);
               const data = await res.json();
               if (data.content) onStateChange({ yaml: data.content });
+              if (data.path) setYamlPath(data.path);
             } catch { /* ignore */ }
           }}
           disabled={!!isRunning}

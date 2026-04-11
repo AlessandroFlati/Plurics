@@ -285,9 +285,9 @@ registry.onTerminalExit(() => {
 });
 
 registry.onSpawn(() => {
-  const caamDir = bootstrap.getCaamDir();
-  if (caamDir) {
-    const cwd = path.dirname(caamDir);
+  const pluricsDir = bootstrap.getPluricsDir();
+  if (pluricsDir) {
+    const cwd = path.dirname(pluricsDir);
     watcher.start(cwd);
   }
 });

@@ -467,7 +467,10 @@ export class DagExecutor {
       }
 
       // Check depends_on_all: wait for all scoped instances of named nodes to terminate
-      const nodeDef = this.workflowConfig.nodes[node.name] ?? this.workflowConfig.nodes[name];
+      const baseName = node.scope && name.endsWith(`.${node.scope}`)
+        ? name.slice(0, -(node.scope.length + 1))
+        : name;
+      const nodeDef = this.workflowConfig.nodes[baseName] ?? this.workflowConfig.nodes[name];
       if (nodeDef?.depends_on_all) {
         if (this.evaluateDependsOnAll(name, nodeDef.depends_on_all)) {
           this.transition(name, 'deps_met');
@@ -645,7 +648,13 @@ export class DagExecutor {
     this.bootstrap.createAgentFiles(agentName, purpose);
     this.bootstrap.regenerateAgentsList(this.registry.listWithPurpose());
 
-    const nodeDef = this.workflowConfig.nodes[node.name] ?? this.workflowConfig.nodes[nodeName];
+    // Scoped nodes (e.g. "cross_checker.C-002") don't exist as keys in the
+    // YAML; their config lives under the base name. Strip the scope suffix to
+    // recover the template node definition.
+    const baseName = node.scope && nodeName.endsWith(`.${node.scope}`)
+      ? nodeName.slice(0, -(node.scope.length + 1))
+      : nodeName;
+    const nodeDef = this.workflowConfig.nodes[baseName] ?? this.workflowConfig.nodes[nodeName];
     const backendType = nodeDef?.backend ?? 'claude-code';
 
     // Build AgentConfig based on backend type
