@@ -59,16 +59,6 @@ export function validateToolManifest(
     }
   }
 
-  for (const inputName of Object.keys(manifest.inputs)) {
-    if (manifest.outputs[inputName] !== undefined) {
-      errors.push({
-        category: 'manifest_validation',
-        message: `port name "${inputName}" is used for both input and output`,
-        path: `outputs.${inputName}`,
-      });
-    }
-  }
-
   if (!ENTRY_POINT_REGEX.test(manifest.implementation.entryPoint)) {
     errors.push({
       category: 'manifest_validation',

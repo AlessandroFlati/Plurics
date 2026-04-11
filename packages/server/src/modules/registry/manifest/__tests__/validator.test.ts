@@ -55,14 +55,6 @@ describe('validateToolManifest', () => {
     expect(errors[0].path).toBe('outputs.r.schema');
   });
 
-  it('rejects overlapping input and output port names', () => {
-    const m = baseManifest();
-    m.inputs.collision = { schema: 'Integer' };
-    m.outputs.collision = { schema: 'Integer' };
-    const errors = validateToolManifest(m, schemas);
-    expect(errors.some((e) => /collision/.test(e.message))).toBe(true);
-  });
-
   it('rejects a tool with no outputs', () => {
     const m = baseManifest();
     m.outputs = {};

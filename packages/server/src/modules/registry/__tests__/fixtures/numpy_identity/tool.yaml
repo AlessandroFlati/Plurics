@@ -1,0 +1,16 @@
+name: test.numpy_identity
+version: 1
+description: Pass a NumpyArray through unchanged. Used for value-store round-trip testing.
+category: testing
+inputs:
+  arr:
+    schema: NumpyArray
+    required: true
+outputs:
+  arr:
+    schema: NumpyArray
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires:
+    - numpy
