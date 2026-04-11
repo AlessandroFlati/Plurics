@@ -13,6 +13,7 @@ import { KnowledgeWatcher } from './modules/knowledge/knowledge-watcher.js';
 import { seedPresetsFromFilesystem } from './modules/workflow/preset-resolver.js';
 import { resolvePluricsPath } from './modules/workflow/utils.js';
 import { RegistryClient } from './modules/registry/index.js';
+import { loadSeedTools } from './modules/registry/seeds/index.js';
 
 const PORT = parseInt(process.env.PORT ?? '11001', 10);
 
@@ -307,6 +308,22 @@ if (seeded > 0) {
   } catch (err) {
     console.error('[registry] initialize failed:', err);
     process.exit(1);
+  }
+
+  try {
+    const seedResult = await loadSeedTools(toolRegistry);
+    console.log(
+      `[registry] Seed tools loaded: ${seedResult.registered} registered, ` +
+      `${seedResult.skipped} skipped, ${seedResult.failed} failed`
+    );
+    if (seedResult.errors.length > 0) {
+      for (const e of seedResult.errors) {
+        console.warn(`[registry] Seed registration failed for ${e.name}: ${e.error}`);
+      }
+    }
+  } catch (err) {
+    console.error('[registry] loadSeedTools failed:', err);
+    // Non-fatal: server continues without seeds.
   }
 
   server.listen(PORT, () => {
