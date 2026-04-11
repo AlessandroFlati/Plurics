@@ -24,3 +24,6 @@ export type {
   InvocationErrorCategory,
   InvocationResult,
 } from './types.js';
+
+export { loadSeedTools } from './seeds/loader.js';
+export type { SeedLoadResult, SeedToolDef } from './seeds/index.js';

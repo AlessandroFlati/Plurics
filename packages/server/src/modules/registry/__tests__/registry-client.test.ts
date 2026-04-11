@@ -5,7 +5,15 @@ import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { RegistryClient } from '../registry-client.js';
 import { BUILTIN_SCHEMAS } from '../schemas/builtin.js';
+import { loadSeedTools } from '../seeds/index.js';
+import type { SeedLoadResult } from '../seeds/index.js';
 
+
+describe('seeds re-exports — smoke', () => {
+  it('loadSeedTools is a function', () => {
+    expect(typeof loadSeedTools).toBe('function');
+  });
+});
 
 describe('RegistryClient — lifecycle', () => {
   let tmpRoot: string;
