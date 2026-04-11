@@ -1,0 +1,25 @@
+name: statsmodels.ols
+version: 1
+description: Fit an OLS linear regression model using statsmodels and return coefficients, p-values, and R-squared.
+inputs:
+  X:
+    schema: NumpyArray
+    required: true
+    description: Feature matrix of shape (n_samples, n_features). A constant column is added automatically.
+  y:
+    schema: NumpyArray
+    required: true
+    description: Target vector of shape (n_samples,).
+outputs:
+  coefficients:
+    schema: NumpyArray
+    description: Fitted regression coefficients (including intercept as first element).
+  p_values:
+    schema: NumpyArray
+    description: P-values for each coefficient.
+  r_squared:
+    schema: Float
+    description: R-squared of the fitted model.
+implementation:
+  language: python
+  entry_point: tool.py:run

@@ -8,13 +8,14 @@ export interface SeedToolDef {
 }
 
 export const SEED_TOOLS: SeedToolDef[] = [
-  { name: 'stats.mean', relPath: './tools/stats.mean/tool.yaml' },
-  { name: 'stats.fft',  relPath: './tools/stats.fft/tool.yaml' },
-  { name: 'json.load', relPath: './tools/json.load/tool.yaml' },
-  { name: 'json.dump', relPath: './tools/json.dump/tool.yaml' },
-  { name: 'pandas.load_csv', relPath: './tools/pandas.load_csv/tool.yaml' },
-  { name: 'pandas.save_csv', relPath: './tools/pandas.save_csv/tool.yaml' },
-  { name: 'stats.describe', relPath: './tools/stats.describe/tool.yaml' },
-  { name: 'stats.correlation_matrix', relPath: './tools/stats.correlation_matrix/tool.yaml' },
+  { name: 'stats.mean',                relPath: './tools/stats.mean/tool.yaml' },
+  { name: 'stats.fft',                 relPath: './tools/stats.fft/tool.yaml' },
+  { name: 'json.load',                 relPath: './tools/json.load/tool.yaml' },
+  { name: 'json.dump',                 relPath: './tools/json.dump/tool.yaml' },
+  { name: 'pandas.load_csv',           relPath: './tools/pandas.load_csv/tool.yaml' },
+  { name: 'pandas.save_csv',           relPath: './tools/pandas.save_csv/tool.yaml' },
+  { name: 'stats.describe',            relPath: './tools/stats.describe/tool.yaml' },
+  { name: 'stats.correlation_matrix',  relPath: './tools/stats.correlation_matrix/tool.yaml' },
   { name: 'sklearn.linear_regression', relPath: './tools/sklearn.linear_regression/tool.yaml' },
+  { name: 'statsmodels.ols',           relPath: './tools/statsmodels.ols/tool.yaml' },
 ];
