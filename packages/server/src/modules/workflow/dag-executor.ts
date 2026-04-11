@@ -17,6 +17,7 @@ import { randomHex, writeJsonAtomic, waitForOutput, normalizeAgentPath } from '.
 import { resolvePresetContent, resolvePlaceholders } from './preset-resolver.js';
 import type { WorkflowPlugin } from './sdk.js';
 import { EvolutionaryPool } from './evolutionary-pool.js';
+import { ValueStore } from '../registry/execution/value-store.js';
 import type { AgentRegistry } from '../agents/agent-registry.js';
 import type { LegacyAgentBackend, AgentConfig, AgentBackend as NewAgentBackend } from '../agents/agent-backend.js';
 import type { AgentBootstrap } from '../knowledge/agent-bootstrap.js';
@@ -60,6 +61,7 @@ export class DagExecutor {
   private paused: boolean = false;
   private readonly pool = new EvolutionaryPool();
   private readonly registryClient: RegistryClient | null;
+  private valueStore: ValueStore | null = null;
 
   constructor(
     workflowConfig: WorkflowConfig,
@@ -132,6 +134,9 @@ export class DagExecutor {
     // Plugin hook: domain-specific initialization
     await this.plugin?.onWorkflowStart?.(this.workspacePath, this.workflowConfig.config);
 
+    this.valueStore = new ValueStore(this.runId, this.workspacePath);
+    // No-op on first run; loads existing handles on resume (called explicitly there).
+
     this.buildNodeGraph();
 
     // Watch the entire run directory recursively for signal files
@@ -158,6 +163,8 @@ export class DagExecutor {
   async resumeFrom(existingRunId: string): Promise<void> {
     // Override the auto-generated runId with the existing one
     (this as { runId: string }).runId = existingRunId;
+    this.valueStore = new ValueStore(this.runId, this.workspacePath);
+    await this.valueStore.loadRunLevel();
     this.startedAt = Date.now();
     this.bootstrap.setCwd(this.workspacePath);
 
@@ -1240,6 +1247,52 @@ export class DagExecutor {
   }
 
   /**
+   * Resolve tool node inputs by substituting ${upstream.outputs.port} references
+   * with concrete values (or ValueRef objects) from upstream signals.
+   *
+   * Phase 2: only handles the case where an upstream signal's output entry has
+   * a value_ref field. Literal values and {{CONFIG}} substitutions pass through.
+   * Full template resolution (arbitrary expressions) is deferred.
+   */
+  private resolveUpstreamRefs(
+    rawInputs: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const resolved: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(rawInputs)) {
+      if (typeof val === 'string' && val.startsWith('${') && val.endsWith('}')) {
+        // Parse ${nodeName.outputs.portName}
+        const inner = val.slice(2, -1); // "nodeName.outputs.portName"
+        const parts = inner.split('.');
+        if (parts.length >= 3 && parts[1] === 'outputs') {
+          const upstreamNodeName = parts[0];
+          const portName = parts.slice(2).join('.');
+          const upstreamNode = this.nodes.get(upstreamNodeName);
+          if (upstreamNode?.signal?.outputs) {
+            const portEntry = upstreamNode.signal.outputs.find(
+              (o) => o.path.endsWith(`/${portName}`) || o.path === portName,
+            );
+            if (portEntry && (portEntry as Record<string, unknown>)['value_ref']) {
+              const handle = (portEntry as Record<string, unknown>)['value_ref'] as string;
+              const schema = (portEntry as Record<string, unknown>)['schema'] as string ?? 'JsonObject';
+              const summary = (portEntry as Record<string, unknown>)['summary'] as import('../registry/types.js').ValueSummary | undefined;
+              const ref: import('../registry/types.js').ValueRef = {
+                _type: 'value_ref',
+                _handle: handle,
+                _schema: schema,
+              };
+              if (summary) ref._summary = summary;
+              resolved[key] = ref;
+              continue;
+            }
+          }
+        }
+      }
+      resolved[key] = val;
+    }
+    return resolved;
+  }
+
+  /**
    * Dispatch a kind:tool node through RegistryClient.invoke().
    * Phase 1: outputs are serialized naively to a signal file (no value store).
    * Phase 2 will route outputs through the value store instead.
@@ -1262,19 +1315,24 @@ export class DagExecutor {
       throw new Error(`Node "${nodeName}": kind is 'tool' but no tool field in YAML`);
     }
 
-    const toolInputs = (nodeDef?.toolInputs as Record<string, unknown>) ?? {};
+    const rawToolInputs = (nodeDef?.toolInputs as Record<string, unknown>) ?? {};
+    // Phase 2: resolve upstream value_ref references
+    const toolInputs = this.resolveUpstreamRefs(rawToolInputs);
 
     let invocationResult;
     try {
-      invocationResult = await this.registryClient.invoke({
-        toolName,
-        inputs: toolInputs,
-        callerContext: {
-          workflowRunId: this.runId,
-          nodeName,
-          scope: node.scope,
+      invocationResult = await this.registryClient.invoke(
+        {
+          toolName,
+          inputs: toolInputs,
+          callerContext: {
+            workflowRunId: this.runId,
+            nodeName,
+            scope: node.scope,
+          },
         },
-      });
+        this.valueStore,   // Phase 2: pass run-level store
+      );
     } catch (err) {
       invocationResult = {
         success: false as const,
@@ -1287,9 +1345,39 @@ export class DagExecutor {
       };
     }
 
+    // Phase 2: flush new handles to disk after each tool node
+    if (invocationResult.success && this.valueStore) {
+      await this.valueStore.flush().catch((e) => {
+        console.warn(`[DagExecutor] ValueStore flush failed for node ${nodeName}:`, e);
+      });
+    }
+
     const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
     const signalDir = path.join(runDir, 'signals');
     await fs.mkdir(signalDir, { recursive: true });
+
+    // Phase 2: build output entries that include value_ref + summary for ValueRef outputs
+    const outputEntries = invocationResult.success
+      ? Object.entries(invocationResult.outputs).map(([k, v]) => {
+          const isRef = (v as Record<string, unknown>)?._type === 'value_ref';
+          if (isRef) {
+            const ref = v as import('../registry/types.js').ValueRef;
+            return {
+              path: `tool-outputs/${agentName}/${k}`,
+              sha256: 'tool-node-phase2-handle',
+              size_bytes: 0,
+              schema: ref._schema,
+              value_ref: ref._handle,
+              ...(ref._summary ? { summary: ref._summary } : {}),
+            };
+          }
+          return {
+            path: `tool-outputs/${agentName}/${k}`,
+            sha256: 'tool-node-phase2-no-hash',
+            size_bytes: JSON.stringify(v).length,
+          };
+        })
+      : [];
 
     const signal: SignalFile = {
       schema_version: 1,
@@ -1298,13 +1386,7 @@ export class DagExecutor {
       scope: node.scope,
       status: invocationResult.success ? 'success' : 'failure',
       decision: null,
-      outputs: invocationResult.success
-        ? Object.entries(invocationResult.outputs).map(([k, v]) => ({
-            path: `tool-outputs/${agentName}/${k}`,
-            sha256: 'tool-node-phase1-no-hash',
-            size_bytes: JSON.stringify(v).length,
-          }))
-        : [],
+      outputs: outputEntries,
       metrics: {
         duration_seconds: invocationResult.metrics.durationMs / 1000,
         retries_used: node.retryCount,
