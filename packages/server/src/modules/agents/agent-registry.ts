@@ -6,6 +6,18 @@ import type { LegacyAgentBackend, AgentConfig, AgentInfo } from './agent-backend
 import { ClaudeCodeSession } from './claude-code-session.js';
 import { ProcessSession } from './process-session.js';
 import { LocalLlmSession } from './local-llm-session.js';
+import type { AgentBackend as NewAgentBackend, NewBackendType } from './agent-backend.js';
+import { ClaudeBackend } from './claude-backend.js';
+import { OpenAICompatBackend } from './openai-compat-backend.js';
+import { OllamaBackend } from './ollama-backend.js';
+import type { ClaudeBackendConfig } from './claude-backend.js';
+import type { OpenAICompatBackendConfig } from './openai-compat-backend.js';
+import type { OllamaBackendConfig } from './ollama-backend.js';
+
+export type NewBackendConfig =
+  | { type: 'claude'; config: ClaudeBackendConfig }
+  | { type: 'openai-compat'; config: OpenAICompatBackendConfig }
+  | { type: 'ollama'; config: OllamaBackendConfig };
 
 type SpawnCallback = (name: string, purpose: string) => void;
 type ExitCallback = (name: string) => void;
@@ -115,6 +127,26 @@ export class AgentRegistry {
       this.perAgentExitCallbacks.set(terminalId, []);
     }
     this.perAgentExitCallbacks.get(terminalId)!.push(callback);
+  }
+
+  /**
+   * Factory for new conversation-oriented backends (Phase 1+).
+   * These backends are not tracked in the sessions Map — they are short-lived
+   * per-conversation objects managed by the DAG executor node lifecycle.
+   */
+  createNewBackend(spec: NewBackendConfig): NewAgentBackend {
+    switch (spec.type) {
+      case 'claude':
+        return new ClaudeBackend(spec.config);
+      case 'openai-compat':
+        return new OpenAICompatBackend(spec.config);
+      case 'ollama':
+        return new OllamaBackend(spec.config);
+      default: {
+        const _exhaustive: never = spec;
+        throw new Error(`Unknown new backend type: ${(_exhaustive as NewBackendConfig).type}`);
+      }
+    }
   }
 
   private readonly outputListeners = new Map<string, Array<(data: string) => void>>();
