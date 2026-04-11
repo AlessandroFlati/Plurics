@@ -171,8 +171,9 @@ export async function invokeTool(
     };
   }
 
-  const nodeName = request.callerContext?.nodeName ?? tool.name;
-  const outputs = decodeOutputs(rawOutputs, outputSchemas, deps.schemas, valueStore, nodeName, tool.name);
+  // Use the requesting node name for handle provenance, fall back to tool name.
+  const nodeNameForHandles = request.callerContext?.nodeName ?? tool.name;
+  const outputs = decodeOutputs(rawOutputs, outputSchemas, deps.schemas, valueStore, nodeNameForHandles, '');
   return { success: true, outputs, metrics: { durationMs: durationMs() } };
 }
 
