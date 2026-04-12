@@ -33,6 +33,8 @@ import type {
   PurposeEnrichment,
   EvolutionaryContextRequest,
   EvolutionaryContextResult,
+  ToolDeclaration,
+  ToolProposalContext,
 } from './sdk.js';
 import { EvolutionaryPool } from './evolutionary-pool.js';
 import { ValueStore } from '../registry/execution/value-store.js';
@@ -173,6 +175,137 @@ export class DagExecutor {
     node.signal.error = { category: 'plugin_error', message, recoverable: false };
   }
 
+  /**
+   * Resolve tool declarations against the registry.
+   * - Found at version → no-op.
+   * - Found at different version, required → throw.
+   * - Found at different version, !required → warn.
+   * - Not found, required → throw.
+   * - Not found, !required → warn.
+   * - registryClient null → log and skip.
+   */
+  private async resolveToolDeclarations(declarations: ToolDeclaration[], platform: PlatformServices): Promise<void> {
+    if (!this.registryClient) {
+      platform.logger.info('[plugin-sdk] declareTools: no registryClient — declarations logged and skipped', {
+        count: declarations.length,
+      });
+      return;
+    }
+    for (const decl of declarations) {
+      const record = this.registryClient.get(decl.name);
+      if (!record) {
+        if (decl.required) {
+          throw new Error(
+            `[plugin-sdk] declareTools: required tool "${decl.name}" v${decl.version} not found in registry`,
+          );
+        }
+        platform.logger.warn(`[plugin-sdk] declareTools: optional tool "${decl.name}" v${decl.version} not found`, {
+          reason: decl.reason,
+        });
+      } else if (String(record.version) !== String(decl.version)) {
+        if (decl.required) {
+          throw new Error(
+            `[plugin-sdk] declareTools: required tool "${decl.name}" found at v${record.version}, expected v${decl.version}`,
+          );
+        }
+        platform.logger.warn(
+          `[plugin-sdk] declareTools: optional tool "${decl.name}" found at v${record.version}, expected v${decl.version}`,
+          { reason: decl.reason },
+        );
+      }
+      // Found at matching version → no-op.
+    }
+  }
+
+  /**
+   * Handle a tool proposal embedded in a signal's decision field.
+   * Called when signal.decision contains a toolProposal key.
+   * T21: agent registration — tests are skipped for agent-proposed tools in this phase.
+   * Follow-up: implement agent test runner (run tests.py via subprocess before registration).
+   */
+  private async handleToolProposal(node: DagNode, proposal: Record<string, unknown>): Promise<void> {
+    const platform = this.buildPlatformServices();
+
+    if (!this.registryClient) {
+      this.nodePluginFail(node, 'onToolProposal', new Error('registry not available'));
+      return;
+    }
+
+    if (!this.plugin?.onToolProposal) {
+      this.nodePluginFail(node, 'onToolProposal', new Error('workflow does not accept tool proposals'));
+      return;
+    }
+
+    const proposalCtx: ToolProposalContext = {
+      runId: this.runId,
+      nodeName: node.name,
+      platform,
+      proposal: {
+        name: String(proposal['name'] ?? ''),
+        description: String(proposal['description'] ?? ''),
+        manifest: (proposal['manifest'] as Record<string, unknown>) ?? {},
+        implementationSource: String(proposal['implementationSource'] ?? ''),
+        testsSource: String(proposal['testsSource'] ?? ''),
+        rationale: String(proposal['rationale'] ?? ''),
+      },
+    };
+
+    let result;
+    try {
+      result = await this.plugin.onToolProposal(proposalCtx);
+    } catch (err) {
+      this.nodePluginFail(node, 'onToolProposal', err);
+      return;
+    }
+
+    if (!result.accept) {
+      this.nodePluginFail(
+        node,
+        'onToolProposal',
+        new Error(result.reason ?? 'plugin rejected tool proposal'),
+      );
+      return;
+    }
+
+    // Write manifest + implementation to temp dir and register.
+    // NOTE: tests are skipped for agent-proposed tools in this phase (T21 stub).
+    // Follow-up: implement agent test runner (run tool's tests.py via subprocess before registration).
+    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
+    const toolTempDir = path.join(runDir, 'agent-tools', proposalCtx.proposal.name);
+    await fs.mkdir(toolTempDir, { recursive: true });
+
+    const manifestPath = path.join(toolTempDir, 'tool.yaml');
+    const implPath = path.join(toolTempDir, 'tool.py');
+
+    // Write manifest as YAML string (proposal.manifest is already the source or a structured object)
+    const manifestContent = typeof proposalCtx.proposal.manifest === 'string'
+      ? proposalCtx.proposal.manifest
+      : JSON.stringify(proposalCtx.proposal.manifest, null, 2);
+    await fs.writeFile(manifestPath, manifestContent, 'utf-8');
+    await fs.writeFile(implPath, proposalCtx.proposal.implementationSource, 'utf-8');
+
+    const regResult = await this.registryClient.register({
+      caller: 'agent',
+      manifestPath,
+      testsRequired: true,
+    });
+
+    if (!regResult.success) {
+      const errMsg = regResult.errors?.map((e) => e.message).join('; ') ?? 'registration failed';
+      platform.logger.warn(`[plugin-sdk] onToolProposal: registration returned not-implemented (T21 stub)`, {
+        tool: proposalCtx.proposal.name,
+        error: errMsg,
+      });
+      // T21 stub: agent-caller testsRequired is not implemented in phase 1+2.
+      // Registration is attempted but skipped — logged as warning, node continues.
+    } else {
+      platform.logger.info(`[plugin-sdk] onToolProposal: tool registered`, {
+        tool: regResult.toolName,
+        version: regResult.version,
+      });
+    }
+  }
+
   private buildUpstreamHandoffs(node: DagNode): Record<string, unknown> {
     const handoffs: Record<string, unknown> = {};
     for (const dep of node.dependsOn ?? []) {
@@ -246,6 +379,28 @@ export class DagExecutor {
       } catch (err) {
         console.error(`[workflow] Plugin load failed for ${this.workflowConfig.plugin}:`, err);
       }
+    }
+
+    // Plugin hook: declareTools — resolve tool dependencies before workflow starts
+    if (this.plugin?.declareTools) {
+      const declareCtx: WorkflowStartContext = {
+        runId: this.runId,
+        workflowName: (this.workflowConfig as any).name ?? (this.workflowConfig as any).workflow ?? 'unknown',
+        workflowVersion: (this.workflowConfig as any).version ?? '0.0.0',
+        workflowConfig: this.workflowConfig.config,
+        runDirectory: path.join(this.workspacePath, '.plurics', 'runs', this.runId),
+        platform: this.buildPlatformServices(),
+      };
+      let declarations: ToolDeclaration[];
+      try {
+        declarations = await this.plugin.declareTools(declareCtx);
+      } catch (err) {
+        throw new Error(`[plugin] declareTools failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      await this.resolveToolDeclarations(declarations, declareCtx.platform);
+      // onToolRegression invocation point: called if registryClient emits a regression event.
+      // The regression testing engine is deferred post-MVP — stub logs and skips.
+      console.log('[plugin-sdk] onToolRegression invocation point reached (regression engine not yet active)');
     }
 
     // Plugin hook: domain-specific initialization
@@ -997,6 +1152,14 @@ export class DagExecutor {
 
     node.signal = signal;
     this.transition(node.name, 'signal_received');
+
+    // T20: onToolProposal signal detection — if decision contains toolProposal, route through plugin hook
+    const decisionAny = signal.decision as unknown as Record<string, unknown> | null;
+    if (decisionAny && typeof decisionAny['toolProposal'] === 'object' && decisionAny['toolProposal'] !== null) {
+      await this.handleToolProposal(node, decisionAny['toolProposal'] as Record<string, unknown>);
+      this.postUpdate();
+      return;
+    }
 
     // Plugin hook: domain-specific signal processing
     if (this.plugin?.onSignalReceived) {
