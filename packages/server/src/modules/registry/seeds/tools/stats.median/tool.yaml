@@ -1,0 +1,15 @@
+name: stats.median
+version: 1
+description: Compute the median of a list of numbers.
+inputs:
+  values:
+    schema: JsonArray
+    required: true
+    description: List of numeric values.
+outputs:
+  median:
+    schema: Float
+    description: Median value.
+implementation:
+  language: python
+  entry_point: tool.py:run

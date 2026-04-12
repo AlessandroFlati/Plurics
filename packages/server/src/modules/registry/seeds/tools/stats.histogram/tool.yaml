@@ -1,0 +1,22 @@
+name: stats.histogram
+version: 1
+description: Compute a histogram of a list of numbers.
+inputs:
+  values:
+    schema: JsonArray
+    required: true
+    description: List of numeric values.
+  bins:
+    schema: Integer
+    required: true
+    description: Number of histogram bins.
+outputs:
+  counts:
+    schema: JsonArray
+    description: Count of values in each bin.
+  edges:
+    schema: JsonArray
+    description: Bin edge values (length = bins + 1).
+implementation:
+  language: python
+  entry_point: tool.py:run

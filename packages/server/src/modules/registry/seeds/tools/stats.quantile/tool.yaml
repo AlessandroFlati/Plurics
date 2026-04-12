@@ -1,0 +1,19 @@
+name: stats.quantile
+version: 1
+description: Compute a quantile of a list of numbers.
+inputs:
+  values:
+    schema: JsonArray
+    required: true
+    description: List of numeric values.
+  q:
+    schema: Float
+    required: true
+    description: Quantile level in [0, 1].
+outputs:
+  quantile:
+    schema: Float
+    description: The q-th quantile of the input values.
+implementation:
+  language: python
+  entry_point: tool.py:run

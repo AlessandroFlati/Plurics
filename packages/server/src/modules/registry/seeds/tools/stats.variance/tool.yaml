@@ -1,0 +1,15 @@
+name: stats.variance
+version: 1
+description: Compute the variance of a list of numbers.
+inputs:
+  values:
+    schema: JsonArray
+    required: true
+    description: List of numeric values.
+outputs:
+  variance:
+    schema: Float
+    description: Population variance.
+implementation:
+  language: python
+  entry_point: tool.py:run

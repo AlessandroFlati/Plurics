@@ -1,0 +1,19 @@
+name: stats.cross_correlation
+version: 1
+description: Compute the cross-correlation function between two equal-length signals.
+inputs:
+  x:
+    schema: JsonArray
+    required: true
+    description: First signal (list of numbers).
+  y:
+    schema: JsonArray
+    required: true
+    description: Second signal (same length as x).
+outputs:
+  ccf:
+    schema: JsonArray
+    description: Cross-correlation values (length = 2*len(x) - 1).
+implementation:
+  language: python
+  entry_point: tool.py:run

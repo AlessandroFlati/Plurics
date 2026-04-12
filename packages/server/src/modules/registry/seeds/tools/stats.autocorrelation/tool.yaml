@@ -1,0 +1,19 @@
+name: stats.autocorrelation
+version: 1
+description: Compute the autocorrelation function (ACF) of a signal up to max_lag.
+inputs:
+  values:
+    schema: JsonArray
+    required: true
+    description: Real-valued time series samples.
+  max_lag:
+    schema: Integer
+    required: true
+    description: Maximum lag to compute (inclusive).
+outputs:
+  acf:
+    schema: JsonArray
+    description: Autocorrelation values at lags 0..max_lag.
+implementation:
+  language: python
+  entry_point: tool.py:run

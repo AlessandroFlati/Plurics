@@ -18,4 +18,10 @@ export const SEED_TOOLS: SeedToolDef[] = [
   { name: 'stats.correlation_matrix',  relPath: './tools/stats.correlation_matrix/tool.yaml' },
   { name: 'sklearn.linear_regression', relPath: './tools/sklearn.linear_regression/tool.yaml' },
   { name: 'statsmodels.ols',           relPath: './tools/statsmodels.ols/tool.yaml' },
+  { name: 'stats.median',            relPath: './tools/stats.median/tool.yaml' },
+  { name: 'stats.variance',          relPath: './tools/stats.variance/tool.yaml' },
+  { name: 'stats.quantile',          relPath: './tools/stats.quantile/tool.yaml' },
+  { name: 'stats.histogram',         relPath: './tools/stats.histogram/tool.yaml' },
+  { name: 'stats.autocorrelation',   relPath: './tools/stats.autocorrelation/tool.yaml' },
+  { name: 'stats.cross_correlation', relPath: './tools/stats.cross_correlation/tool.yaml' },
 ];
