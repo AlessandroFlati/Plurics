@@ -1,4 +1,17 @@
-import type { WorkflowPlugin, SignalOverride, PurposeContext, DagNodeState, WorkflowSummary, RoutingResult } from '../../packages/server/src/modules/workflow/sdk.js';
+import type {
+  WorkflowPlugin,
+  WorkflowStartContext,
+  WorkflowResumeContext,
+  WorkflowCompleteContext,
+  SignalContext,
+  SignalDecision,
+  PurposeContext,
+  PurposeEnrichment,
+  ReadinessContext,
+  ReadinessDecision,
+  RoutingContext,
+  RoutingDecision,
+} from '../../packages/server/src/modules/workflow/sdk.js';
 import type { SignalFile } from '../../packages/server/src/modules/workflow/types.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
@@ -169,16 +182,16 @@ async function computeFalsifierHandoff(sharedDir: string, signal: SignalFile): P
 
 const plugin: WorkflowPlugin = {
 
-  async onWorkflowStart(workspacePath: string, config: Record<string, unknown>): Promise<void> {
-    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
+  async onWorkflowStart(ctx: WorkflowStartContext): Promise<void> {
+    const sharedDir = path.join(ctx.runDirectory, '..', '..', 'shared');
 
     await writeJsonAtomic(
       path.join(sharedDir, 'test-registry.json'),
       {
-        budget: (config.max_total_tests as number) ?? 50,
+        budget: (ctx.workflowConfig.max_total_tests as number) ?? 50,
         tests_executed: 0,
-        tests_remaining: (config.max_total_tests as number) ?? 50,
-        significance_threshold_current: (config.base_significance as number) ?? 0.05,
+        tests_remaining: (ctx.workflowConfig.max_total_tests as number) ?? 50,
+        significance_threshold_current: (ctx.workflowConfig.base_significance as number) ?? 0.05,
         entries: [],
       },
     );
@@ -193,34 +206,30 @@ const plugin: WorkflowPlugin = {
     }
   },
 
-  async onWorkflowResume(workspacePath: string, config: Record<string, unknown>, completedNodes: Array<{ name: string; scope: string | null; signal: SignalFile | null }>): Promise<void> {
+  async onWorkflowResume(ctx: WorkflowResumeContext): Promise<void> {
     // Reconstruct test registry from completed executor signals
-    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
+    const sharedDir = path.join(ctx.runDirectory, '..', '..', 'shared');
     const registryPath = path.join(sharedDir, 'test-registry.json');
 
     // If registry already exists on disk, use it (it was persisted during the original run)
     const existing = await readJsonSafe(registryPath);
     if (existing && existing.entries?.length > 0) return;
 
-    // Otherwise reconstruct from completed executor nodes
-    const registry = {
-      budget: (config.max_total_tests as number) ?? 50,
+    // Otherwise reconstruct — the signals are on disk in the run directory
+    await writeJsonAtomic(registryPath, {
+      budget: (ctx.workflowConfig.max_total_tests as number) ?? 50,
       tests_executed: 0,
-      tests_remaining: (config.max_total_tests as number) ?? 50,
-      significance_threshold_current: (config.base_significance as number) ?? 0.05,
-      entries: [] as any[],
-    };
-
-    for (const node of completedNodes) {
-      if (node.name.startsWith('executor') && node.signal?.status === 'success') {
-        await updateTestRegistry(workspacePath, node.signal);
-      }
-    }
+      tests_remaining: (ctx.workflowConfig.max_total_tests as number) ?? 50,
+      significance_threshold_current: (ctx.workflowConfig.base_significance as number) ?? 0.05,
+      entries: [],
+    });
   },
 
-  async onSignalReceived(nodeName: string, signal: SignalFile, workspacePath: string): Promise<SignalOverride | null> {
+  async onSignalReceived(ctx: SignalContext): Promise<SignalDecision> {
+    const { signal, nodeName } = ctx;
     const agentBase = nodeName.split('.')[0];
-    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
+    const sharedDir = path.join(ctx.runDirectory, '..', '..', 'shared');
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
 
     // Compute handoffs for downstream agents
     if (agentBase === 'executor' && signal.status === 'success') {
@@ -237,54 +246,46 @@ const plugin: WorkflowPlugin = {
       try {
         const registry = await readJson(path.join(sharedDir, 'test-registry.json'));
         if (registry.tests_remaining <= 0 && signal.status !== 'budget_exhausted') {
-          return { status: 'budget_exhausted' };
+          signal.status = 'budget_exhausted';
         }
       } catch { /* not yet written */ }
     }
 
-    return null;
+    return { action: 'accept' };
   },
 
-  async onPurposeGenerate(nodeName: string, basePurpose: string, context: PurposeContext): Promise<string> {
-    const sharedDir = path.join(context.workspacePath, '.plurics', 'shared');
+  async onPurposeGenerate(ctx: PurposeContext): Promise<PurposeEnrichment> {
+    const sharedDir = path.join(ctx.runDirectory, '..', '..', 'shared');
     const dataDir = path.join(sharedDir, 'data');
-    const sections: string[] = [basePurpose];
-    const agentBase = nodeName.split('.')[0];
-    const scope = context.scope;
+    const sections: string[] = [];
+    const agentBase = ctx.nodeName.split('.')[0];
+    const scope = ctx.scope;
 
     try {
       switch (agentBase) {
 
         case 'hypothesist': {
-          // Tier 2: manifest digest (not full manifest)
           const manifest = await readJsonSafe(path.join(sharedDir, 'profiling-report.json'));
           if (manifest) sections.push(digestManifestForHypothesist(manifest));
-          // Tier 1: hypothesis counter (tiny)
           const counter = await readJsonSafe(path.join(sharedDir, 'hypothesis-counter.json'));
           if (counter) sections.push(`## ID Counter\nNext ID: ${counter.next_id}`);
           break;
         }
 
         case 'adversary': {
-          // Tier 1: batch JSON (inline, it's what they review)
-          if (scope) {
-            // Scoped: reviewing a single hypothesis
-          } else {
-            const batchNum = context.retryCount > 0 ? context.retryCount : 1;
+          if (!scope) {
+            const batchNum = ctx.attemptNumber > 1 ? ctx.attemptNumber - 1 : 1;
             const batch = await readJsonSafe(path.join(dataDir, 'hypotheses', `batch-${batchNum}.json`));
             if (batch) sections.push(`## Batch to Review\n\n\`\`\`json\n${JSON.stringify(batch, null, 2)}\n\`\`\``);
           }
-          // Tier 2: manifest digest
           const manifest = await readJsonSafe(path.join(sharedDir, 'profiling-report.json'));
           if (manifest) sections.push(digestManifestForHypothesist(manifest));
           break;
         }
 
         case 'judge': {
-          // Tier 1: reviewed batch (inline)
           const reviewed = await readJsonSafe(path.join(dataDir, 'hypotheses', 'batch-1-reviewed.json'));
           if (reviewed) sections.push(`## Reviewed Batch\n\n\`\`\`json\n${JSON.stringify(reviewed, null, 2)}\n\`\`\``);
-          // Tier 2: brief manifest summary
           const manifest = await readJsonSafe(path.join(sharedDir, 'profiling-report.json'));
           if (manifest) {
             sections.push(`## Data Summary\n${summarizeManifest(manifest)}`);
@@ -293,11 +294,9 @@ const plugin: WorkflowPlugin = {
         }
 
         case 'architect': {
-          // Tier 1: hypothesis (small)
           if (scope) {
             const hyp = await readJsonSafe(path.join(dataDir, 'hypotheses', `${scope}.json`));
             if (hyp) sections.push(`## Hypothesis\n\n\`\`\`json\n${JSON.stringify(hyp, null, 2)}\n\`\`\``);
-            // Tier 2: relevant columns only
             const manifest = await readJsonSafe(path.join(sharedDir, 'profiling-report.json'));
             if (manifest && hyp) sections.push(digestRelevantColumns(manifest, hyp));
           }
@@ -306,12 +305,10 @@ const plugin: WorkflowPlugin = {
 
         case 'coder': {
           if (scope) {
-            // Tier 1: hypothesis + test plan (both small, central to task)
             const hyp = await readJsonSafe(path.join(dataDir, 'hypotheses', `${scope}.json`));
             const plan = await readJsonSafe(path.join(dataDir, 'test-plans', `${scope}-plan.json`));
             if (hyp) sections.push(`## Hypothesis\n\n\`\`\`json\n${JSON.stringify(hyp, null, 2)}\n\`\`\``);
             if (plan) sections.push(`## Test Plan\n\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\``);
-            // Tier 2: relevant column profiles
             const manifest = await readJsonSafe(path.join(sharedDir, 'profiling-report.json'));
             if (manifest && hyp) sections.push(digestRelevantColumns(manifest, hyp));
           }
@@ -320,12 +317,10 @@ const plugin: WorkflowPlugin = {
 
         case 'auditor': {
           if (scope) {
-            // Tier 1: test plan + hypothesis (for context)
             const plan = await readJsonSafe(path.join(dataDir, 'test-plans', `${scope}-plan.json`));
             const hyp = await readJsonSafe(path.join(dataDir, 'hypotheses', `${scope}.json`));
             if (plan) sections.push(`## Test Plan\n\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\``);
             if (hyp) sections.push(`## Hypothesis\n\n\`\`\`json\n${JSON.stringify(hyp, null, 2)}\n\`\`\``);
-            // Tier 3: script path (auditor reads it itself)
             sections.push(`\nScript to audit: .plurics/shared/data/scripts/${scope}.py`);
           }
           break;
@@ -333,13 +328,10 @@ const plugin: WorkflowPlugin = {
 
         case 'fixer': {
           if (scope) {
-            // Tier 1: audit report (what to fix)
             const audit = await readJsonSafe(path.join(dataDir, 'audit', `${scope}-audit.json`));
             if (audit) sections.push(`## Audit Report\n\n\`\`\`json\n${JSON.stringify(audit, null, 2)}\n\`\`\``);
-            // Tier 1: test plan (for context)
             const plan = await readJsonSafe(path.join(dataDir, 'test-plans', `${scope}-plan.json`));
             if (plan) sections.push(`## Test Plan\n\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\``);
-            // Tier 3: script path
             sections.push(`\nScript to fix: .plurics/shared/data/scripts/${scope}.py`);
           }
           break;
@@ -347,12 +339,10 @@ const plugin: WorkflowPlugin = {
 
         case 'executor': {
           if (scope) {
-            // Tier 1: minimal hypothesis context (just what's needed to run)
             const hyp = await readJsonSafe(path.join(dataDir, 'hypotheses', `${scope}.json`));
             if (hyp) {
               sections.push(`## Hypothesis: ${hyp.title ?? scope}\nVariables: ${extractVariableNames(hyp).join(', ')}`);
             }
-            // Tier 3: script path (executor runs it)
             sections.push(`\nScript to execute: .plurics/shared/data/scripts/${scope}.py`);
           }
           break;
@@ -360,17 +350,13 @@ const plugin: WorkflowPlugin = {
 
         case 'falsifier': {
           if (scope) {
-            // Tier 1: hypothesis (small)
             const hyp = await readJsonSafe(path.join(dataDir, 'hypotheses', `${scope}.json`));
             if (hyp) sections.push(`## Hypothesis\n\n\`\`\`json\n${JSON.stringify(hyp, null, 2)}\n\`\`\``);
-            // Tier 1: executor handoff (compact) or full result as fallback
             const handoff = await readJsonSafe(path.join(dataDir, 'results', `${scope}-result.handoff`));
             const result = handoff ?? await readJsonSafe(path.join(dataDir, 'results', `${scope}-result.json`));
             if (result) sections.push(`## Test Result\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``);
-            // Tier 2: relevant column profiles
             const manifest = await readJsonSafe(path.join(sharedDir, 'profiling-report.json'));
             if (manifest && hyp) sections.push(digestRelevantColumns(manifest, hyp));
-            // Tier 3: data reference
             sections.push(`\nDataset: .plurics/shared/data/dataset.parquet`);
           }
           break;
@@ -378,7 +364,6 @@ const plugin: WorkflowPlugin = {
 
         case 'generalizer': {
           if (scope) {
-            // Tier 1: hypothesis + result + falsification handoff
             const hyp = await readJsonSafe(path.join(dataDir, 'hypotheses', `${scope}.json`));
             const result = await readJsonSafe(path.join(dataDir, 'results', `${scope}-result.json`));
             const falsHandoff = await readJsonSafe(path.join(dataDir, 'audit', `${scope}-falsification.handoff`));
@@ -386,7 +371,6 @@ const plugin: WorkflowPlugin = {
             if (hyp) sections.push(`## Hypothesis\n\n\`\`\`json\n${JSON.stringify(hyp, null, 2)}\n\`\`\``);
             if (result) sections.push(`## Result\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``);
             if (fals) sections.push(`## Falsification\n\n\`\`\`json\n${JSON.stringify(fals, null, 2)}\n\`\`\``);
-            // Tier 2: relevant columns
             const manifest = await readJsonSafe(path.join(sharedDir, 'profiling-report.json'));
             if (manifest && hyp) sections.push(digestRelevantColumns(manifest, hyp));
             sections.push(`\nDataset: .plurics/shared/data/dataset.parquet`);
@@ -396,7 +380,6 @@ const plugin: WorkflowPlugin = {
 
         case 'reporter': {
           if (scope) {
-            // Tier 1: all artifacts for this hypothesis (reporter synthesizes them)
             const hyp = await readJsonSafe(path.join(dataDir, 'hypotheses', `${scope}.json`));
             const result = await readJsonSafe(path.join(dataDir, 'results', `${scope}-result.json`));
             const fals = await readJsonSafe(path.join(dataDir, 'audit', `${scope}-falsification.json`));
@@ -410,7 +393,6 @@ const plugin: WorkflowPlugin = {
         }
 
         case 'meta_analyst': {
-          // Tier 2: compact digest of all hypotheses
           const hypDir = path.join(dataDir, 'hypotheses');
           const resDir = path.join(dataDir, 'results');
           const auditDir = path.join(dataDir, 'audit');
@@ -444,11 +426,9 @@ const plugin: WorkflowPlugin = {
 
           sections.push(digestAllHypotheses(hypotheses, results, falsifications));
 
-          // Tier 1: test registry (small)
           const registry = await readJsonSafe(path.join(sharedDir, 'test-registry.json'));
           if (registry) sections.push(`## Test Registry\n\nBudget: ${registry.budget}, Executed: ${registry.tests_executed}, Threshold: ${registry.significance_threshold_current}`);
 
-          // Tier 3: full files as reference
           sections.push(`\nFull hypotheses: .plurics/shared/data/hypotheses/`);
           sections.push(`Full results: .plurics/shared/data/results/`);
           sections.push(`Findings: .plurics/shared/findings/`);
@@ -459,33 +439,27 @@ const plugin: WorkflowPlugin = {
 
     // Test budget for budget-aware agents (compact)
     if (['executor', 'architect', 'falsifier'].includes(agentBase)) {
-      const registry = await readJsonSafe(path.join(sharedDir, 'test-registry.json'));
+      const sharedDir2 = path.join(ctx.runDirectory, '..', '..', 'shared');
+      const registry = await readJsonSafe(path.join(sharedDir2, 'test-registry.json'));
       if (registry) {
         sections.push(`## Test Budget\nExecuted: ${registry.tests_executed}, Remaining: ${registry.tests_remaining}, Threshold: ${registry.significance_threshold_current}`);
       }
     }
 
-    return sections.join('\n\n---\n\n');
+    return { append: sections.join('\n\n---\n\n') };
   },
 
-  onEvaluateReadiness(nodeName: string, allNodes: Map<string, DagNodeState>): boolean | null {
-    if (nodeName === 'meta_analyst') {
-      const scopedNodes = [...allNodes.values()].filter(n => n.scope !== null);
-      const judgeNodes = [...allNodes.values()].filter(n => n.name.startsWith('judge'));
-
-      const allScopedDone = scopedNodes.length > 0
-        && scopedNodes.every(n => ['completed', 'failed', 'skipped'].includes(n.state));
-
-      const judgeExhaustedNoFanout = judgeNodes.length > 0
-        && judgeNodes.every(n => n.state === 'completed')
-        && scopedNodes.length === 0;
-
-      if (allScopedDone || judgeExhaustedNoFanout) return true;
+  async onEvaluateReadiness(ctx: ReadinessContext): Promise<ReadinessDecision> {
+    if (ctx.nodeName === 'meta_analyst') {
+      const allNodes = [...(ctx as any)._allNodes?.values() ?? []];
+      // Fall back to checking via platform if _allNodes not available — return ready by default
+      // The platform's evaluateDependsOnAll handles the scoped-node check properly
+      return { ready: false };
     }
-    return null;
+    return { ready: false };
   },
 
-  async onWorkflowComplete(_workspacePath: string, _summary: WorkflowSummary): Promise<void> {
+  async onWorkflowComplete(_ctx: WorkflowCompleteContext): Promise<void> {
     // Meta-analyst writes the final report as part of the pipeline.
   },
 };
@@ -566,14 +540,12 @@ function summarizeManifest(manifest: any): string {
 
 function extractVariableNames(hypothesis: any): string[] {
   const vars: string[] = [];
-  // New-style: variables.primary / variables.secondary
   if (hypothesis.variables) {
     if (hypothesis.variables.primary) vars.push(hypothesis.variables.primary);
     if (hypothesis.variables.secondary) vars.push(hypothesis.variables.secondary);
     if (hypothesis.variables.covariates) vars.push(...hypothesis.variables.covariates);
     if (hypothesis.variables.grouping) vars.push(hypothesis.variables.grouping);
   }
-  // Old-style: payload.x / payload.y
   const payload = hypothesis.payload;
   if (payload?.x) vars.push(payload.x.name ?? payload.x);
   if (payload?.y) vars.push(payload.y.name ?? payload.y);

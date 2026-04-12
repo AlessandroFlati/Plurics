@@ -10,9 +10,17 @@
  */
 
 import type {
-  WorkflowPlugin, SignalOverride, PurposeContext, RoutingResult, WorkflowSummary,
+  WorkflowPlugin,
+  WorkflowStartContext,
+  WorkflowResumeContext,
+  WorkflowCompleteContext,
+  SignalContext,
+  SignalDecision,
+  PurposeContext,
+  PurposeEnrichment,
+  RoutingContext,
+  RoutingDecision,
 } from '../../packages/server/src/modules/workflow/sdk.js';
-import type { SignalFile } from '../../packages/server/src/modules/workflow/types.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import * as crypto from 'node:crypto';
@@ -47,9 +55,6 @@ function scopeToSnake(scope: string): string {
 
 /**
  * Extract the best Lean code block from LLM output.
- * Prefers the LAST code block that does NOT contain `sorry` (as Goedel/Qwen often
- * produces intermediate scaffolding before the final proof).
- * Ensures Mathlib imports are present.
  */
 function extractLeanCode(output: string): string | null {
   const blocks: string[] = [];
@@ -60,14 +65,12 @@ function extractLeanCode(output: string): string | null {
   }
 
   if (blocks.length === 0) {
-    // Fallback: no code block, maybe raw Lean code
     if (output.includes('theorem') && output.includes(':= by')) {
       return ensureImports(output.trim());
     }
     return null;
   }
 
-  // Prefer the last block without `sorry`
   const cleanBlocks = blocks.filter(b => !b.includes('sorry'));
   const chosen = cleanBlocks.length > 0 ? cleanBlocks[cleanBlocks.length - 1] : blocks[blocks.length - 1];
   return ensureImports(chosen);
@@ -130,21 +133,15 @@ async function ensureLeanProject(projectDir: string): Promise<void> {
   const toolchain = path.join(projectDir, 'lean-toolchain');
   if (!await readFileSafe(toolchain)) await writeFileAtomic(toolchain, TOOLCHAIN);
 
-  // Lib root file: TheoremProverMini.lean imports the Theorems submodule
   const libRoot = path.join(projectDir, 'TheoremProverMini.lean');
   if (!await readFileSafe(libRoot)) {
     await writeFileAtomic(libRoot, 'import TheoremProverMini.Theorems\n');
   }
 
-  // Placeholder namespace file (ensures the lib compiles even before theorems)
   const placeholder = path.join(projectDir, 'TheoremProverMini', 'Theorems.lean');
   if (!await readFileSafe(placeholder)) await writeFileAtomic(placeholder, NAMESPACE_INIT);
 }
 
-/**
- * Rebuild the Theorems.lean index to import all theorem files that exist.
- * Call this after writing/removing a theorem file.
- */
 async function rebuildTheoremsIndex(projectDir: string): Promise<void> {
   const theoremsDir = path.join(projectDir, 'TheoremProverMini', 'Theorems');
   let files: string[];
@@ -166,27 +163,26 @@ async function rebuildTheoremsIndex(projectDir: string): Promise<void> {
 
 const plugin: WorkflowPlugin = {
 
-  async onWorkflowStart(workspacePath: string, config: Record<string, unknown>): Promise<void> {
-    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
+  async onWorkflowStart(ctx: WorkflowStartContext): Promise<void> {
+    const sharedDir = path.join(ctx.runDirectory, '..', '..', 'shared');
     for (const dir of ['theorems', 'formalized', 'findings']) {
       await fs.mkdir(path.join(sharedDir, dir), { recursive: true });
     }
-    const leanDir = (config.lean_project_dir as string)?.replace('{{WORKSPACE}}', workspacePath)
-      ?? path.join(workspacePath, 'lean-project');
+    const leanDir = (ctx.workflowConfig.lean_project_dir as string)?.replace('{{WORKSPACE}}', path.join(ctx.runDirectory, '..', '..', '..'))
+      ?? path.join(path.join(ctx.runDirectory, '..', '..', '..'), 'lean-project');
     await ensureLeanProject(leanDir);
   },
 
-  async onWorkflowResume(workspacePath: string): Promise<void> {
+  async onWorkflowResume(ctx: WorkflowResumeContext): Promise<void> {
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
     await ensureLeanProject(path.join(workspacePath, 'lean-project'));
   },
 
-  async onSignalReceived(
-    nodeName: string,
-    signal: SignalFile,
-    workspacePath: string,
-  ): Promise<SignalOverride | null> {
+  async onSignalReceived(ctx: SignalContext): Promise<SignalDecision> {
+    const { signal, nodeName } = ctx;
     const agentBase = nodeName.split('.')[0];
     const scope = signal.scope;
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
     const sharedDir = path.join(workspacePath, '.plurics', 'shared');
 
     // Formalizer: copy the .lean file from .plurics/shared/formalized/ to the lean project
@@ -201,8 +197,7 @@ const plugin: WorkflowPlugin = {
       }
     }
 
-    // Prover (claude-code): Claude wrote the proof into .plurics/shared/formalized/{SCOPE}.lean.
-    // Copy it into the lean-project for lake build.
+    // Prover (claude-code): copy proof into lean-project
     if (agentBase === 'prover' && scope) {
       const snakeScope = scopeToSnake(scope);
       const src = path.join(sharedDir, 'formalized', `${scope}.lean`);
@@ -213,17 +208,14 @@ const plugin: WorkflowPlugin = {
         await rebuildTheoremsIndex(path.join(workspacePath, 'lean-project'));
       } else if (content?.includes('sorry')) {
         return {
-          status: 'failure',
-          decision: { goto: 'prover', reason: 'Proof still contains sorry' } as any,
+          action: 'reject_and_retry',
+          retryReason: 'Proof still contains sorry',
         };
       }
     }
 
     // Lean check: inspect output to determine success/failure
     if (agentBase === 'lean_check' && scope) {
-      // The process backend signal was generated from exit code — the output
-      // is in stdout (success=true if exit=0). But lake build can exit 0
-      // with warnings containing `sorry`. Re-check by reading the log.
       const runsDir = path.join(workspacePath, '.plurics', 'runs');
       try {
         const runDirs = (await fs.readdir(runsDir))
@@ -239,13 +231,12 @@ const plugin: WorkflowPlugin = {
             const hasSorry = /declaration uses 'sorry'|sorry/i.test(log);
             const isValid = !hasError && !hasSorry && signal.status === 'success';
 
-            // Save last error for retry context
             if (!isValid) {
               const errPath = path.join(sharedDir, 'theorems', `${scope}-last-error.txt`);
               await writeFileAtomic(errPath, log);
               return {
-                status: 'failure',
-                decision: { goto: 'prover', reason: 'Lean rejected proof' } as any,
+                action: 'reject_and_retry',
+                retryReason: 'Lean rejected proof',
               };
             }
           }
@@ -253,23 +244,19 @@ const plugin: WorkflowPlugin = {
       } catch { /* best effort */ }
     }
 
-    return null;
+    return { action: 'accept' };
   },
 
-  async onPurposeGenerate(
-    nodeName: string,
-    basePurpose: string,
-    context: PurposeContext,
-  ): Promise<string> {
-    const sharedDir = path.join(context.workspacePath, '.plurics', 'shared');
-    const sections: string[] = [basePurpose];
-    const agentBase = nodeName.split('.')[0];
-    const scope = context.scope;
+  async onPurposeGenerate(ctx: PurposeContext): Promise<PurposeEnrichment> {
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
+    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
+    const sections: string[] = [];
+    const agentBase = ctx.nodeName.split('.')[0];
+    const scope = ctx.scope;
 
     switch (agentBase) {
 
       case 'conjecturer': {
-        // No specific input — just the task
         sections.push(`## Task\n\nGenerate 3 elementary theorems per the schema above.`);
         break;
       }
@@ -287,25 +274,22 @@ const plugin: WorkflowPlugin = {
 
       case 'prover': {
         if (scope) {
-          // Tier 1: theorem metadata (helps Claude pick tactics)
           const theorem = await readJsonSafe(path.join(sharedDir, 'theorems', `${scope}.json`));
           if (theorem) {
             sections.push(`## Theorem Metadata\n\n\`\`\`json\n${JSON.stringify(theorem, null, 2)}\n\`\`\``);
           }
 
-          // Tier 1: current Lean file (the one from formalizer, has `sorry`)
-          const leanPath = path.join(context.workspacePath, 'lean-project', 'TheoremProverMini', 'Theorems', `${scopeToSnake(scope)}.lean`);
+          const leanPath = path.join(workspacePath, 'lean-project', 'TheoremProverMini', 'Theorems', `${scopeToSnake(scope)}.lean`);
           const leanContent = await readFileSafe(leanPath);
           if (leanContent) {
             sections.push(`## Current Lean File (has sorry — replace with proof)\n\n\`\`\`lean\n${leanContent}\n\`\`\``);
           }
 
-          // Retry context: previous compiler error
-          if (context.retryCount > 0) {
+          if (ctx.attemptNumber > 1) {
             const errorPath = path.join(sharedDir, 'theorems', `${scope}-last-error.txt`);
             const error = await readFileSafe(errorPath);
             if (error) {
-              sections.push(`## Previous Compiler Error (Attempt ${context.retryCount})\n\n\`\`\`\n${error.slice(0, 2000)}\n\`\`\``);
+              sections.push(`## Previous Compiler Error (Attempt ${ctx.attemptNumber - 1})\n\n\`\`\`\n${error.slice(0, 2000)}\n\`\`\``);
               sections.push(`This is your retry. Fix the proof based on the error above.`);
             }
           }
@@ -323,7 +307,7 @@ const plugin: WorkflowPlugin = {
       case 'reporter': {
         if (scope) {
           const theorem = await readJsonSafe(path.join(sharedDir, 'theorems', `${scope}.json`));
-          const leanPath = path.join(context.workspacePath, 'lean-project', 'TheoremProverMini', 'Theorems', `${scopeToSnake(scope)}.lean`);
+          const leanPath = path.join(workspacePath, 'lean-project', 'TheoremProverMini', 'Theorems', `${scopeToSnake(scope)}.lean`);
           const leanContent = await readFileSafe(leanPath);
           if (theorem) sections.push(`## Theorem\n\n\`\`\`json\n${JSON.stringify(theorem, null, 2)}\n\`\`\``);
           if (leanContent) sections.push(`## Verified Lean Proof\n\n\`\`\`lean\n${leanContent}\n\`\`\``);
@@ -332,37 +316,36 @@ const plugin: WorkflowPlugin = {
       }
     }
 
-    return sections.join('\n\n---\n\n');
+    return { append: sections.join('\n\n---\n\n') };
   },
 
-  async onResolveRouting(
-    nodeName: string,
-    signal: SignalFile,
-    _branchRules: Array<{ condition: string; goto: string; foreach?: string }>,
-  ): Promise<RoutingResult | null> {
-    const agentBase = nodeName.split('.')[0];
+  async onResolveRouting(ctx: RoutingContext): Promise<RoutingDecision | null> {
+    const agentBase = ctx.sourceNode.split('.')[0];
 
     // Conjecturer: fan-out on theorem_ids
     if (agentBase === 'conjecturer') {
-      const decision = signal.decision as any;
+      const decision = ctx.decision as any;
       if (decision?.theorem_ids?.length) {
-        return { goto: 'formalizer', foreach: 'theorem_ids', payload: decision.theorem_ids };
+        return { selectedBranch: 'formalizer', foreach: 'theorem_ids', payload: decision.theorem_ids };
       }
     }
 
-    // Lean check: route based on signal status (set by onSignalReceived)
+    // Lean check: route based on signal status
     if (agentBase === 'lean_check') {
-      if (signal.status === 'failure') {
-        return { goto: 'prover' };
+      // The signal status was set by onSignalReceived
+      // We need to check what the routing context tells us
+      const signal = ctx.decision as any;
+      if (signal?.status === 'failure' || (ctx.candidateBranches.includes('prover') && !ctx.candidateBranches.includes('reporter'))) {
+        return { selectedBranch: 'prover' };
       } else {
-        return { goto: 'reporter' };
+        return { selectedBranch: 'reporter' };
       }
     }
 
     return null;
   },
 
-  async onWorkflowComplete(_workspacePath: string, _summary: WorkflowSummary): Promise<void> {
+  async onWorkflowComplete(_ctx: WorkflowCompleteContext): Promise<void> {
     // Reporter writes individual findings.
   },
 };

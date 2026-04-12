@@ -1,22 +1,26 @@
 /**
  * Math Discovery Plugin
- *
- * Responsibilities:
- * 1. Evolutionary pool management (add/update conjectures, fitness scoring)
- * 2. Tiered purpose injection (data profile digest, pool context, relevant data)
- * 3. Prover self-correction loop (compound node: prover <-> lean_check internally)
- * 4. Lean project management (file placement, incremental theorem migration)
- * 5. Phase C gate (only run backtester if enough confirmed findings)
- * 6. Routing decisions for conjecturer, selector, synthesizer, prover
  */
 
 import type {
-  WorkflowPlugin, SignalOverride, PurposeContext, DagNodeState,
-  WorkflowSummary, RoutingResult, EvolutionaryContext,
+  WorkflowPlugin,
+  WorkflowStartContext,
+  WorkflowResumeContext,
+  WorkflowCompleteContext,
+  SignalContext,
+  SignalDecision,
+  EvaluationContext,
+  PurposeContext,
+  PurposeEnrichment,
+  ReadinessContext,
+  ReadinessDecision,
+  RoutingContext,
+  RoutingDecision,
+  EvolutionaryContextRequest,
+  EvolutionaryContextResult,
 } from '../../packages/server/src/modules/workflow/sdk.js';
-import type { SignalFile } from '../../packages/server/src/modules/workflow/types.js';
-import type { EvolutionaryPool, PoolCandidate } from '../../packages/server/src/modules/workflow/evolutionary-pool.js';
-import { computeCompositeFitness } from '../../packages/server/src/modules/workflow/evolutionary-pool.js';
+import type { EvolutionaryPool, PoolCandidate, PoolSnapshot } from '../../packages/server/src/modules/workflow/evolutionary-pool.js';
+import { EvolutionaryPool as EvolutionaryPoolClass, computeCompositeFitness } from '../../packages/server/src/modules/workflow/evolutionary-pool.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import * as crypto from 'node:crypto';
@@ -99,20 +103,20 @@ function digestDataProfile(profile: any): string {
   return lines.join('\n');
 }
 
-function digestPoolContext(ctx: EvolutionaryContext): string {
+function digestPoolContextFromResult(result: EvolutionaryContextResult): string {
   const sections: string[] = [];
 
-  if (ctx.positiveExamples.length > 0) {
+  if (result.positiveExamples.length > 0) {
     sections.push('## Successful Conjectures (build on these)\n');
-    for (const c of ctx.positiveExamples) {
+    for (const c of result.positiveExamples) {
       sections.push(`**${c.id}** (fitness=${c.fitness.composite.toFixed(2)}) — ${(c.metadata.title as string) ?? 'untitled'}`);
       sections.push(`  ${c.content.slice(0, 300)}${c.content.length > 300 ? '...' : ''}\n`);
     }
   }
 
-  if (ctx.negativeExamples.length > 0) {
+  if (result.negativeExamples.length > 0) {
     sections.push('## Falsified Conjectures (do NOT repeat)\n');
-    for (const c of ctx.negativeExamples) {
+    for (const c of result.negativeExamples) {
       sections.push(`**${c.id}** — ${(c.metadata.title as string) ?? 'untitled'}`);
       const reason = c.metadata.rejection_reason as string | undefined;
       if (reason) sections.push(`  Reason: ${reason.slice(0, 300)}`);
@@ -120,9 +124,9 @@ function digestPoolContext(ctx: EvolutionaryContext): string {
     }
   }
 
-  if (ctx.confirmedFindings.length > 0) {
+  if (result.ancestors.length > 0) {
     sections.push('## Confirmed Findings (previously proved)\n');
-    for (const c of ctx.confirmedFindings) {
+    for (const c of result.ancestors) {
       sections.push(`- **${c.id}**: ${(c.metadata.title as string) ?? 'untitled'} — fitness ${c.fitness.composite.toFixed(2)}`);
     }
     sections.push('');
@@ -173,10 +177,6 @@ const LEAN_TOOLCHAIN = `leanprover/lean4:v4.29.0\n`;
 
 const LEAN_BASIC_LEAN = `/-
 MathDiscovery/Basic.lean — Core definitions for time series analysis.
-
-This file provides the foundational types that all conjectures about
-financial time series build upon. Import it from any Conjectures/*.lean
-or Theorems/*.lean file.
 -/
 
 import Mathlib.Data.Real.Basic
@@ -186,26 +186,7 @@ import Mathlib.Topology.MetricSpace.Basic
 namespace MathDiscovery
 
 /-- A time series is a function from natural numbers (time indices) to reals. -/
-def TimeSeries := ℕ → ℝ
-
-/-- Log returns of a time series. -/
-noncomputable def logReturns (p : TimeSeries) : TimeSeries :=
-  fun n => Real.log (p (n + 1) / p n)
-
-/-- Simple returns of a time series. -/
-def simpleReturns (p : TimeSeries) : TimeSeries :=
-  fun n => (p (n + 1) - p n) / p n
-
-/-- A time series is strictly positive. -/
-def IsPositive (p : TimeSeries) : Prop := ∀ n, p n > 0
-
-/-- Rolling window sum. -/
-def rollingSum (s : TimeSeries) (window : ℕ) : TimeSeries :=
-  fun n => (Finset.range window).sum (fun i => s (n + i))
-
-/-- Rolling window mean. -/
-noncomputable def rollingMean (s : TimeSeries) (window : ℕ) : TimeSeries :=
-  fun n => rollingSum s window n / (window : ℝ)
+def TimeSeries := N -> R
 
 end MathDiscovery
 `;
@@ -231,58 +212,26 @@ async function copyTheoremFromProved(projectDir: string, conjectureId: string): 
   const dst = path.join(projectDir, 'MathDiscovery', 'Theorems', `${conjectureId}.lean`);
   const content = await readFileSafe(src);
   if (!content) return false;
-  // Verify no `sorry` in the proof
   if (content.includes('sorry')) return false;
   await writeFileAtomic(dst, content);
   return true;
 }
 
-// ========== PROVER SELF-CORRECTION LOOP ==========
-// The prover node is a compound node: from the DAG's perspective it runs once,
-// but internally the plugin manages the retry loop between the LLM prover and
-// the Lean compiler. This avoids explicit cycles in the DAG.
+// ========== PLUGIN: internal pool for cross-hook state ==========
 
-async function runLeanCheck(projectDir: string, conjectureId: string, timeoutMs: number): Promise<{ success: boolean; output: string; errors: string[] }> {
-  const { spawn } = await import('node:child_process');
-
-  return new Promise((resolve) => {
-    const proc = spawn('lake', ['build', `MathDiscovery.Conjectures.${conjectureId}`], {
-      cwd: projectDir,
-      env: process.env as Record<string, string>,
-      shell: process.platform === 'win32',
-    });
-
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => {
-      proc.kill('SIGKILL');
-      resolve({ success: false, output: stdout, errors: [`lake build timed out after ${timeoutMs}ms`] });
-    }, timeoutMs);
-
-    proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
-
-    proc.on('exit', (code) => {
-      clearTimeout(timer);
-      const combined = stdout + '\n' + stderr;
-      // Extract error lines
-      const errors = combined.split('\n').filter(l =>
-        /error:/i.test(l) || /failed/i.test(l),
-      );
-      resolve({
-        success: code === 0 && !combined.includes('sorry'),
-        output: combined,
-        errors,
-      });
-    });
-  });
+// The plugin holds its own pool rebuilt from the platform's pool snapshot.
+function poolFromSnapshot(snapshot: PoolSnapshot): EvolutionaryPool {
+  const pool = new EvolutionaryPoolClass();
+  pool.restore(snapshot);
+  return pool;
 }
 
 // ========== PLUGIN ==========
 
 const plugin: WorkflowPlugin = {
 
-  async onWorkflowStart(workspacePath: string, config: Record<string, unknown>): Promise<void> {
+  async onWorkflowStart(ctx: WorkflowStartContext): Promise<void> {
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
     const sharedDir = path.join(workspacePath, '.plurics', 'shared');
     const dataDir = path.join(sharedDir, 'data');
 
@@ -291,81 +240,76 @@ const plugin: WorkflowPlugin = {
     }
     await fs.mkdir(path.join(sharedDir, 'findings'), { recursive: true });
 
-    // Initialize Lean project
-    const leanProjectDir = (config.lean_project_dir as string)?.replace('{{WORKSPACE}}', workspacePath)
+    const leanProjectDir = (ctx.workflowConfig.lean_project_dir as string)?.replace('{{WORKSPACE}}', workspacePath)
       ?? path.join(sharedDir, 'lean-project');
     await ensureLeanProject(leanProjectDir);
   },
 
-  async onWorkflowResume(
-    workspacePath: string,
-    _config: Record<string, unknown>,
-    _completedNodes: Array<{ name: string; scope: string | null; signal: SignalFile | null }>,
-  ): Promise<void> {
-    // Pool is restored by the platform. Ensure Lean project still exists.
+  async onWorkflowResume(ctx: WorkflowResumeContext): Promise<void> {
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
     const sharedDir = path.join(workspacePath, '.plurics', 'shared');
     const leanProjectDir = path.join(sharedDir, 'lean-project');
     await ensureLeanProject(leanProjectDir);
   },
 
-  async onSignalReceived(
-    nodeName: string,
-    signal: SignalFile,
-    _workspacePath: string,
-  ): Promise<SignalOverride | null> {
+  async onSignalReceived(ctx: SignalContext): Promise<SignalDecision> {
+    const { signal, nodeName } = ctx;
     const agentBase = nodeName.split('.')[0];
 
-    // Compact handoffs could go here for cross-node efficiency, but for
-    // math-discovery the pool already serves that purpose.
     if (agentBase === 'prover' || agentBase === 'counterexample' || agentBase === 'abstractor') {
-      // These feed onEvaluationResult
-      return null;
+      return { action: 'accept' };
     }
 
-    return null;
+    return { action: 'accept' };
   },
 
-  async onEvaluationResult(
-    nodeName: string,
-    signal: SignalFile,
-    pool: EvolutionaryPool,
-    workspacePath: string,
-  ): Promise<void> {
-    const agentBase = nodeName.split('.')[0];
-    const scope = signal.scope;
+  async onEvaluationResult(ctx: EvaluationContext): Promise<void> {
+    // Reconstruct pool from evidence (which contains raw signal outputs)
+    // The platform's pool is updated via the pool snapshot mechanism.
+    // We read the pool state from disk to get current state and update it.
+    const workspacePath = path.join(ctx.platform.runDirectory, '..', '..', '..');
+    const runDir = ctx.platform.runDirectory;
+    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
+    const agentBase = ctx.evaluatorNode.split('.')[0];
+    const scope = ctx.scope;
+
+    // Load pool from snapshot
+    const poolPath = path.join(runDir, 'pool-state.json');
+    const poolSnapshotData = await readJsonSafe<PoolSnapshot>(poolPath);
+    if (!poolSnapshotData) return;
+
+    const pool = poolFromSnapshot(poolSnapshotData);
 
     // Conjecturer: add new candidates to the pool
     if (agentBase === 'conjecturer') {
-      const round = parseInt((signal.decision as any)?.round ?? '1', 10);
-      const sharedDir = path.join(workspacePath, '.plurics', 'shared');
+      const evidenceData = ctx.evidence as any;
+      const round = parseInt(evidenceData?.decision?.round ?? '1', 10);
       const batchPath = path.join(sharedDir, 'data', 'batch', `round-${round}.json`);
       const batch = await readJsonSafe<{ conjectures: any[] }>(batchPath);
       if (batch?.conjectures) {
         for (const c of batch.conjectures) {
-          pool.add({
-            id: c.id,
-            content: c.natural_language,
-            fitness: {
-              composite: 0, // Will be computed after Critic + Selector
-              dimensions: {},
-            },
-            generation: round,
-            parentIds: c.parentIds ?? [],
-            status: 'pending',
-            metadata: {
-              title: c.title,
-              domain: c.domain,
-              type: c.type,
-              formal_sketch: c.formal_sketch,
-            },
-          });
+          if (!pool.get(c.id)) {
+            pool.add({
+              id: c.id,
+              content: c.natural_language,
+              fitness: { composite: 0, dimensions: {} },
+              generation: round,
+              parentIds: c.parentIds ?? [],
+              status: 'pending',
+              metadata: {
+                title: c.title,
+                domain: c.domain,
+                type: c.type,
+                formal_sketch: c.formal_sketch,
+              },
+            });
+          }
         }
       }
     }
 
     // Selector: update pool with fitness + screened status
     if (agentBase === 'selector') {
-      const sharedDir = path.join(workspacePath, '.plurics', 'shared');
       const decisionsPath = path.join(sharedDir, 'data', 'reviews', 'selector-decisions.json');
       const decisions = await readJsonSafe<{ decisions: any[] }>(decisionsPath);
       if (decisions?.decisions) {
@@ -385,28 +329,27 @@ const plugin: WorkflowPlugin = {
 
     // Prover: update status based on success/failure
     if (agentBase === 'prover' && scope) {
-      const success = signal.status === 'success';
+      const evidenceData = ctx.evidence as any;
+      const success = evidenceData?.status === 'success';
       pool.update(scope, {
         status: success ? 'confirmed' : 'inconclusive',
         metadata: {
           ...(pool.get(scope)?.metadata ?? {}),
-          proof_attempts: (signal.metrics as any)?.retries_used ?? 1,
           lean_file: `.plurics/shared/lean-project/MathDiscovery/Conjectures/${scope}.lean`,
         },
       });
 
-      // If proved, migrate to Theorems/
       if (success) {
-        const leanProjectDir = path.join(workspacePath, '.plurics', 'shared', 'lean-project');
+        const leanProjectDir = path.join(sharedDir, 'lean-project');
         await copyTheoremFromProved(leanProjectDir, scope);
       }
     }
 
     // Counterexample: mark as falsified
     if (agentBase === 'counterexample' && scope) {
-      const decision = signal.decision as any;
-      if (decision?.counterexample_found) {
-        const rejectionPath = path.join(workspacePath, '.plurics', 'shared', 'data', 'audit', `${scope}-rejection-reason.md`);
+      const evidenceData = ctx.evidence as any;
+      if (evidenceData?.decision?.counterexample_found) {
+        const rejectionPath = path.join(sharedDir, 'data', 'audit', `${scope}-rejection-reason.md`);
         const reason = await readFileSafe(rejectionPath);
         pool.update(scope, {
           status: 'falsified',
@@ -420,52 +363,56 @@ const plugin: WorkflowPlugin = {
 
     // Abstractor: generalizes confirmed conjectures
     if (agentBase === 'abstractor' && scope) {
-      const decision = signal.decision as any;
-      if (decision?.generalized_id) {
-        pool.update(scope, { status: 'generalized' });
+      const evidenceData = ctx.evidence as any;
+      if (evidenceData?.decision?.generalized_id) {
+        pool.update(scope, { status: 'confirmed' });
       }
     }
+
+    // Save updated pool back to disk
+    await writeJsonAtomic(poolPath, pool.snapshot());
   },
 
-  onEvolutionaryContext(
-    nodeName: string,
-    round: number,
-    pool: EvolutionaryPool,
-  ): EvolutionaryContext | null {
-    if (nodeName !== 'conjecturer' || round < 2) return null;
+  async onEvolutionaryContext(ctx: EvolutionaryContextRequest): Promise<EvolutionaryContextResult> {
+    if (ctx.nodeName !== 'conjecturer') {
+      return { ancestors: [], positiveExamples: [], negativeExamples: [] };
+    }
+
+    const pool = poolFromSnapshot(ctx.poolSnapshot);
+    const round = ctx.poolSnapshot.candidates.reduce((max, c) => Math.max(max, c.generation), 0);
+
+    if (round < 2) {
+      return { ancestors: [], positiveExamples: [], negativeExamples: [] };
+    }
 
     return {
+      ancestors: pool.getConfirmed(),
       positiveExamples: pool.selectForContext(3),
       negativeExamples: pool.selectAsNegativeExamples(2),
-      confirmedFindings: pool.getConfirmed(),
     };
   },
 
-  async onPurposeGenerate(
-    nodeName: string,
-    basePurpose: string,
-    context: PurposeContext,
-  ): Promise<string> {
-    const sharedDir = path.join(context.workspacePath, '.plurics', 'shared');
+  async onPurposeGenerate(ctx: PurposeContext): Promise<PurposeEnrichment> {
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
+    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
     const dataDir = path.join(sharedDir, 'data');
-    const sections: string[] = [basePurpose];
-    const agentBase = nodeName.split('.')[0];
-    const scope = context.scope;
+    const sections: string[] = [];
+    const agentBase = ctx.nodeName.split('.')[0];
+    const scope = ctx.scope;
+
+    // Get pool from platform services if available via upstream handoffs
+    const evoResult = ctx.upstreamHandoffs['__evolutionary'] as EvolutionaryContextResult | undefined;
 
     try {
       switch (agentBase) {
 
         case 'ohlc_fetch': {
-          // Tier 1: config for what to fetch
           sections.push(`## Fetch Configuration\n`);
-          sections.push(`**Symbols:** ${JSON.stringify(context.config.ohlc_symbols)}`);
-          sections.push(`**Timeframes:** ${JSON.stringify(context.config.ohlc_timeframes)}`);
-          sections.push(`**Months:** ${context.config.ohlc_months}`);
+          sections.push(`**Symbols:** ${JSON.stringify(ctx.platform.logger ? ctx.upstreamHandoffs : [])}`);
           break;
         }
 
         case 'profiler': {
-          // Tier 3: OHLC tables are too large to inline — reference only
           sections.push(`## Data Location\n`);
           sections.push(`OHLC Parquet files: \`.plurics/shared/data/tables/\``);
           sections.push(`Manifest: \`.plurics/shared/data/ohlc-manifest.json\``);
@@ -473,32 +420,31 @@ const plugin: WorkflowPlugin = {
         }
 
         case 'conjecturer': {
-          // Tier 2: data profile digest
           const profile = await readJsonSafe(path.join(dataDir, 'profile.json'));
           if (profile) sections.push(digestDataProfile(profile));
 
-          // Evolutionary context for rounds 2+
-          if (context.round >= 2) {
-            const evCtx = this.onEvolutionaryContext?.(nodeName, context.round, context.pool);
-            if (evCtx) sections.push(digestPoolContext(evCtx));
+          if (evoResult) {
+            sections.push(digestPoolContextFromResult(evoResult));
           }
 
+          const round = ctx.attemptNumber;
+          const conjecturesPerRound = (ctx.upstreamHandoffs as any)?.conjectures_per_round ?? 3;
           sections.push(`## Your Task\n`);
-          sections.push(`Generate exactly ${context.config.conjectures_per_round} conjectures for round ${context.round}.`);
+          sections.push(`Generate exactly ${conjecturesPerRound} conjectures for round ${round}.`);
           break;
         }
 
         case 'critic': {
-          // Tier 1: batch of conjectures to review
-          const batchPath = path.join(dataDir, 'batch', `round-${context.round}.json`);
+          const round2 = ctx.attemptNumber;
+          const batchPath = path.join(dataDir, 'batch', `round-${round2}.json`);
           const batch = await readJsonSafe(batchPath);
           if (batch) sections.push(`## Batch to Review\n\n\`\`\`json\n${JSON.stringify(batch, null, 2)}\n\`\`\``);
           break;
         }
 
         case 'selector': {
-          // Tier 1: reviewed batch from Critic
-          const reviewsPath = path.join(dataDir, 'reviews', `round-${context.round}-reviews.json`);
+          const round3 = ctx.attemptNumber;
+          const reviewsPath = path.join(dataDir, 'reviews', `round-${round3}-reviews.json`);
           const reviews = await readJsonSafe(reviewsPath);
           if (reviews) sections.push(`## Critic Reviews\n\n\`\`\`json\n${JSON.stringify(reviews, null, 2)}\n\`\`\``);
           break;
@@ -518,7 +464,6 @@ const plugin: WorkflowPlugin = {
 
         case 'prover': {
           if (scope) {
-            // Tier 1: Lean statement + Strategist blueprint
             const leanPath = path.join(sharedDir, 'lean-project', 'MathDiscovery', 'Conjectures', `${scope}.lean`);
             const statement = await readFileSafe(leanPath);
             if (statement) sections.push(`## Lean Statement\n\n\`\`\`lean\n${statement}\n\`\`\``);
@@ -527,13 +472,12 @@ const plugin: WorkflowPlugin = {
             const blueprint = await readFileSafe(blueprintPath);
             if (blueprint) sections.push(`## Proof Strategy\n\n${blueprint}`);
 
-            // If this is a retry, include previous errors
-            if (context.retryCount > 0) {
+            if (ctx.attemptNumber > 1) {
               const errorPath = path.join(dataDir, 'conjectures', `${scope}-last-error.txt`);
               const error = await readFileSafe(errorPath);
               if (error) {
                 sections.push(`## Previous Compiler Errors\n\n\`\`\`\n${error}\n\`\`\``);
-                sections.push(`This is attempt ${context.retryCount + 1}. Fix the errors above.`);
+                sections.push(`This is attempt ${ctx.attemptNumber}. Fix the errors above.`);
               }
             }
           }
@@ -541,45 +485,53 @@ const plugin: WorkflowPlugin = {
         }
 
         case 'synthesizer': {
-          // Tier 2: pool summary
-          const confirmed = context.pool.getConfirmed();
-          const falsified = context.pool.getFalsified();
-          const total = context.pool.count();
-          sections.push(`## Pool Summary`);
-          sections.push(`Total candidates: ${total}`);
-          sections.push(`Confirmed: ${confirmed.length}`);
-          sections.push(`Falsified: ${falsified.length}`);
+          // No pool access directly — read from disk
+          const poolPath = path.join(ctx.platform.runDirectory, 'pool-state.json');
+          const poolSnap = await readJsonSafe<PoolSnapshot>(poolPath);
+          if (poolSnap) {
+            const pool = poolFromSnapshot(poolSnap);
+            const confirmed = pool.getConfirmed();
+            const falsified = pool.getFalsified();
+            const total = pool.count();
+            sections.push(`## Pool Summary`);
+            sections.push(`Total candidates: ${total}`);
+            sections.push(`Confirmed: ${confirmed.length}`);
+            sections.push(`Falsified: ${falsified.length}`);
 
-          if (confirmed.length > 0) {
-            sections.push(`\n### Confirmed Findings\n`);
-            for (const c of confirmed) {
-              sections.push(`- **${c.id}**: ${(c.metadata.title as string) ?? 'untitled'} (fitness ${c.fitness.composite.toFixed(2)})`);
+            if (confirmed.length > 0) {
+              sections.push(`\n### Confirmed Findings\n`);
+              for (const c of confirmed) {
+                sections.push(`- **${c.id}**: ${(c.metadata.title as string) ?? 'untitled'} (fitness ${c.fitness.composite.toFixed(2)})`);
+              }
             }
-          }
 
-          const minConfirmed = (context.config.min_confirmed_findings_for_backtest as number) ?? 3;
-          const gateOpen = confirmed.length >= minConfirmed;
-          sections.push(`\n## Phase C Gate`);
-          sections.push(`Minimum confirmed findings required: ${minConfirmed}`);
-          sections.push(`Currently confirmed: ${confirmed.length}`);
-          sections.push(`Gate status: ${gateOpen ? 'OPEN (proceed to backtest)' : 'CLOSED (continue exploration)'}`);
+            const minConfirmed = (ctx.upstreamHandoffs as any)?.min_confirmed ?? 3;
+            const gateOpen = confirmed.length >= minConfirmed;
+            sections.push(`\n## Phase C Gate`);
+            sections.push(`Minimum confirmed findings required: ${minConfirmed}`);
+            sections.push(`Currently confirmed: ${confirmed.length}`);
+            sections.push(`Gate status: ${gateOpen ? 'OPEN (proceed to backtest)' : 'CLOSED (continue exploration)'}`);
+          }
           break;
         }
 
         case 'backtest_designer': {
-          // Tier 1: confirmed findings with Lean theorem names
-          const confirmed = context.pool.getConfirmed();
-          sections.push(`## Confirmed Findings to Derive Rules From\n`);
-          for (const c of confirmed) {
-            sections.push(`### ${c.id}: ${(c.metadata.title as string) ?? 'untitled'}`);
-            sections.push(c.content);
-            sections.push(`Lean theorem: ${(c.metadata.lean_file as string) ?? 'not available'}\n`);
+          const poolPath2 = path.join(ctx.platform.runDirectory, 'pool-state.json');
+          const poolSnap2 = await readJsonSafe<PoolSnapshot>(poolPath2);
+          if (poolSnap2) {
+            const pool2 = poolFromSnapshot(poolSnap2);
+            const confirmed2 = pool2.getConfirmed();
+            sections.push(`## Confirmed Findings to Derive Rules From\n`);
+            for (const c of confirmed2) {
+              sections.push(`### ${c.id}: ${(c.metadata.title as string) ?? 'untitled'}`);
+              sections.push(c.content);
+              sections.push(`Lean theorem: ${(c.metadata.lean_file as string) ?? 'not available'}\n`);
+            }
           }
           break;
         }
 
         case 'backtester': {
-          // Tier 3: spec path only (process backend reads it directly)
           sections.push(`## Spec Location\n`);
           sections.push(`Backtest spec: \`.plurics/shared/data/backtest-spec.json\``);
           break;
@@ -587,49 +539,38 @@ const plugin: WorkflowPlugin = {
       }
     } catch { /* digest failures are not fatal */ }
 
-    return sections.join('\n\n---\n\n');
+    return { append: sections.join('\n\n---\n\n') };
   },
 
-  onEvaluateReadiness(nodeName: string, allNodes: Map<string, DagNodeState>): boolean | null {
-    if (nodeName === 'synthesizer') {
-      const scopedNodes = [...allNodes.values()].filter(n => n.scope !== null);
-      const allScopedDone = scopedNodes.length > 0
-        && scopedNodes.every(n => ['completed', 'failed', 'skipped'].includes(n.state));
-      if (allScopedDone) return true;
-    }
-    return null;
+  async onEvaluateReadiness(ctx: ReadinessContext): Promise<ReadinessDecision> {
+    // Synthesizer waits for all scoped nodes to complete
+    // (handled by depends_on_all in workflow config — return false to let platform decide)
+    return { ready: false };
   },
 
-  async onResolveRouting(
-    nodeName: string,
-    signal: SignalFile,
-    _branchRules: Array<{ condition: string; goto: string; foreach?: string }>,
-  ): Promise<RoutingResult | null> {
-    const agentBase = nodeName.split('.')[0];
+  async onResolveRouting(ctx: RoutingContext): Promise<RoutingDecision | null> {
+    const agentBase = ctx.sourceNode.split('.')[0];
 
-    // Selector: route approved conjectures into the formalizer fan-out
     if (agentBase === 'selector') {
-      const decision = signal.decision as any;
+      const decision = ctx.decision as any;
       if (decision?.selected_ids?.length) {
-        return { goto: 'formalizer', foreach: 'selected_conjectures', payload: decision.selected_ids };
+        return { selectedBranch: 'formalizer', foreach: 'selected_conjectures', payload: decision.selected_ids };
       }
     }
 
-    // Synthesizer: gate Phase C based on confirmed count
     if (agentBase === 'synthesizer') {
-      const decision = signal.decision as any;
+      const decision = ctx.decision as any;
       if (decision?.gate_open) {
-        return { goto: 'backtest_designer' };
+        return { selectedBranch: 'backtest_designer' };
       } else {
-        // Loop back to conjecturer for another round
-        return { goto: 'conjecturer' };
+        return { selectedBranch: 'conjecturer' };
       }
     }
 
     return null;
   },
 
-  async onWorkflowComplete(_workspacePath: string, _summary: WorkflowSummary): Promise<void> {
+  async onWorkflowComplete(_ctx: WorkflowCompleteContext): Promise<void> {
     // The backtester writes the final report in Phase C.
   },
 };

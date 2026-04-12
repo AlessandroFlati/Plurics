@@ -1,25 +1,28 @@
 /**
  * Sequence Explorer plugin
- *
- * Responsibilities:
- * 1. Copy Python tools into the workspace at startup
- * 2. Pool management with lineage tracking across rounds
- * 3. Tiered purpose injection (data profile, pool context, verification results)
- * 4. Fitness computation from verification + critic + cross-check
- * 5. Round loop control (stagnation detection, success threshold)
- * 6. Routing: conjecturer fan-out, selector → reporter or back to conjecturer
  */
 
 import type {
-  WorkflowPlugin, PurposeContext, RoutingResult, WorkflowSummary,
-  EvolutionaryContext,
+  WorkflowPlugin,
+  WorkflowStartContext,
+  WorkflowResumeContext,
+  WorkflowCompleteContext,
+  SignalContext,
+  SignalDecision,
+  EvaluationContext,
+  PurposeContext,
+  PurposeEnrichment,
+  ReadinessContext,
+  ReadinessDecision,
+  RoutingContext,
+  RoutingDecision,
+  EvolutionaryContextRequest,
+  EvolutionaryContextResult,
 } from '../../packages/server/src/modules/workflow/sdk.js';
-import type { SignalFile } from '../../packages/server/src/modules/workflow/types.js';
-import type { EvolutionaryPool, PoolCandidate } from '../../packages/server/src/modules/workflow/evolutionary-pool.js';
-import { computeCompositeFitness } from '../../packages/server/src/modules/workflow/evolutionary-pool.js';
+import type { PoolCandidate, PoolSnapshot } from '../../packages/server/src/modules/workflow/evolutionary-pool.js';
+import { EvolutionaryPool, computeCompositeFitness } from '../../packages/server/src/modules/workflow/evolutionary-pool.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import * as fsSync from 'node:fs';
 import * as crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
@@ -84,8 +87,6 @@ interface DimensionScores {
 }
 
 function eleganceFromPython(pythonBody: string): number {
-  // Heuristic: shorter and simpler = more elegant
-  // Penalize: lots of imports, long bodies, many conditionals
   const lines = pythonBody.split('\n').filter(l => l.trim().length > 0).length;
   const conditionals = (pythonBody.match(/\bif\b|\belif\b|\belse\b/g) ?? []).length;
   const imports = (pythonBody.match(/\bimport\b/g) ?? []).length;
@@ -106,7 +107,6 @@ function noveltyFromCrossCheck(crossCheck: any): number {
 }
 
 function provabilityFromType(conjecture: any): number {
-  // Rough heuristic: simpler conjecture types are more formalizable
   if (!conjecture?.type) return 0.5;
   const scores: Record<string, number> = {
     closed_form: 0.9,
@@ -118,7 +118,13 @@ function provabilityFromType(conjecture: any): number {
   return scores[conjecture.type] ?? 0.5;
 }
 
-// ========== POOL LINEAGE + CONTEXT ==========
+// ========== POOL HELPERS ==========
+
+function poolFromSnapshot(snapshot: PoolSnapshot): EvolutionaryPool {
+  const pool = new EvolutionaryPool();
+  pool.restore(snapshot);
+  return pool;
+}
 
 function formatPositiveExample(c: PoolCandidate): string {
   const title = (c.metadata?.title as string) ?? 'untitled';
@@ -138,7 +144,8 @@ function formatNegativeExample(c: PoolCandidate): string {
 
 const plugin: WorkflowPlugin = {
 
-  async onWorkflowStart(workspacePath: string, _config: Record<string, unknown>): Promise<void> {
+  async onWorkflowStart(ctx: WorkflowStartContext): Promise<void> {
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
     const sharedDir = path.join(workspacePath, '.plurics', 'shared');
     for (const dir of ['conjectures', 'formalized', 'verification', 'reviews', 'findings']) {
       await fs.mkdir(path.join(sharedDir, dir), { recursive: true });
@@ -147,29 +154,37 @@ const plugin: WorkflowPlugin = {
     console.log('[sequence-explorer] workspace initialized');
   },
 
-  async onWorkflowResume(workspacePath: string): Promise<void> {
+  async onWorkflowResume(ctx: WorkflowResumeContext): Promise<void> {
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
     await installPythonTools(workspacePath);
   },
 
-  async onEvaluationResult(
-    nodeName: string,
-    signal: SignalFile,
-    pool: EvolutionaryPool,
-    workspacePath: string,
-  ): Promise<void> {
-    const agentBase = nodeName.split('.')[0];
-    const scope = signal.scope;
+  async onSignalReceived(ctx: SignalContext): Promise<SignalDecision> {
+    return { action: 'accept' };
+  },
+
+  async onEvaluationResult(ctx: EvaluationContext): Promise<void> {
+    const agentBase = ctx.evaluatorNode.split('.')[0];
+    const scope = ctx.scope;
+    const runDir = ctx.platform.runDirectory;
+    const workspacePath = path.join(runDir, '..', '..', '..');
     const sharedDir = path.join(workspacePath, '.plurics', 'shared');
 
-    // Conjecturer: seed the pool with new candidates (one pool entry per conjecture)
+    const poolPath = path.join(runDir, 'pool-state.json');
+    const poolSnapshotData = await readJsonSafe<PoolSnapshot>(poolPath);
+    if (!poolSnapshotData) return;
+
+    const pool = poolFromSnapshot(poolSnapshotData);
+    const evidence = ctx.evidence as any;
+
+    // Conjecturer: seed the pool with new candidates
     if (agentBase === 'conjecturer' && !scope) {
-      const decision = signal.decision as any;
+      const decision = evidence?.decision;
       const ids: string[] = decision?.conjecture_ids ?? [];
       for (const id of ids) {
         const conjFile = path.join(sharedDir, 'conjectures', `${id}.json`);
         const conj = await readJsonSafe<any>(conjFile);
         if (!conj) continue;
-        // If it already exists (e.g. round 2 re-add), update; otherwise add
         if (pool.get(id)) continue;
         pool.add({
           id,
@@ -186,10 +201,9 @@ const plugin: WorkflowPlugin = {
           },
         });
       }
-      return;
     }
 
-    // Critic: compute final fitness from all upstream signals and update pool
+    // Critic: compute final fitness
     if (agentBase === 'critic' && scope) {
       const verification = await readJsonSafe<any>(path.join(sharedDir, 'verification', `${scope}-verification.json`));
       const crosscheck = await readJsonSafe<any>(path.join(sharedDir, 'verification', `${scope}-crosscheck.json`));
@@ -205,7 +219,6 @@ const plugin: WorkflowPlugin = {
 
       const composite = computeCompositeFitness(dims, FITNESS_WEIGHTS);
 
-      // Determine status
       let status: PoolCandidate['status'] = 'pending';
       if (dims.empirical === 1.0 && crosscheck?.verdict === 'novel') status = 'confirmed';
       else if (dims.empirical === 1.0 && crosscheck?.verdict === 'rediscovery') status = 'confirmed';
@@ -231,12 +244,11 @@ const plugin: WorkflowPlugin = {
           },
         });
       }
-      return;
     }
 
-    // Quick filter: if it rejected, mark as filtered_out (do not proceed)
+    // Quick filter: if rejected, mark as filtered_out
     if (agentBase === 'quick_filter' && scope) {
-      const decision = signal.decision as any;
+      const decision = evidence?.decision;
       if (decision?.verdict === 'reject') {
         const existing = pool.get(scope);
         if (existing) {
@@ -250,36 +262,49 @@ const plugin: WorkflowPlugin = {
         }
       }
     }
+
+    // Save updated pool back to disk
+    const writeJsonAtomicLocal = async (p: string, data: unknown) => {
+      const tmp = `${p}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+      await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
+      await fs.rename(tmp, p);
+    };
+    await writeJsonAtomicLocal(poolPath, pool.snapshot());
   },
 
-  onEvolutionaryContext(
-    nodeName: string,
-    round: number,
-    pool: EvolutionaryPool,
-  ): EvolutionaryContext | null {
-    if (nodeName !== 'conjecturer' || round < 2) return null;
+  async onEvolutionaryContext(ctx: EvolutionaryContextRequest): Promise<EvolutionaryContextResult> {
+    if (ctx.nodeName !== 'conjecturer') {
+      return { ancestors: [], positiveExamples: [], negativeExamples: [] };
+    }
+
+    const pool = poolFromSnapshot(ctx.poolSnapshot);
+    const round = ctx.poolSnapshot.candidates.reduce((max, c) => Math.max(max, c.generation), 0);
+
+    if (round < 2) {
+      return { ancestors: [], positiveExamples: [], negativeExamples: [] };
+    }
+
     return {
+      ancestors: pool.getConfirmed(),
       positiveExamples: pool.selectForContext(3),
       negativeExamples: pool.selectAsNegativeExamples(2),
-      confirmedFindings: pool.getConfirmed(),
     };
   },
 
-  async onPurposeGenerate(
-    nodeName: string,
-    basePurpose: string,
-    context: PurposeContext,
-  ): Promise<string> {
-    const sharedDir = path.join(context.workspacePath, '.plurics', 'shared');
-    const sections: string[] = [basePurpose];
-    const agentBase = nodeName.split('.')[0];
-    const scope = context.scope;
+  async onPurposeGenerate(ctx: PurposeContext): Promise<PurposeEnrichment> {
+    const workspacePath = path.join(ctx.runDirectory, '..', '..', '..');
+    const sharedDir = path.join(workspacePath, '.plurics', 'shared');
+    const sections: string[] = [];
+    const agentBase = ctx.nodeName.split('.')[0];
+    const scope = ctx.scope;
+
+    const evoResult = ctx.upstreamHandoffs['__evolutionary'] as EvolutionaryContextResult | undefined;
 
     try {
       switch (agentBase) {
 
         case 'sequence_fetch': {
-          const targetId = (context.config.target_oeis_id as string) ?? 'A000045';
+          const targetId = (ctx.upstreamHandoffs['target_oeis_id'] as string) ?? 'A000045';
           sections.push(`## Configuration\n\ntarget_oeis_id: ${targetId}`);
           break;
         }
@@ -308,37 +333,33 @@ const plugin: WorkflowPlugin = {
           if (profile) {
             sections.push(`## Data Profile\n\n\`\`\`json\n${JSON.stringify(profile, null, 2).slice(0, 3000)}\n\`\`\``);
           }
-          sections.push(`## Round\n\nThis is round ${context.round} of discovery.`);
+          sections.push(`## Round\n\nThis is round ${ctx.attemptNumber} of discovery.`);
 
-          if (context.round >= 2) {
-            const evCtx = plugin.onEvolutionaryContext!('conjecturer', context.round, context.pool);
-            if (evCtx) {
-              if (evCtx.positiveExamples.length > 0) {
-                sections.push(
-                  `## Top conjectures from previous rounds (build on these)\n\n` +
-                  evCtx.positiveExamples.map(formatPositiveExample).join('\n\n')
-                );
-              }
-              if (evCtx.negativeExamples.length > 0) {
-                sections.push(
-                  `## Falsified conjectures (DO NOT repeat these mistakes)\n\n` +
-                  evCtx.negativeExamples.map(formatNegativeExample).join('\n\n')
-                );
-              }
-              if (evCtx.confirmedFindings.length > 0) {
-                sections.push(
-                  `## Confirmed findings so far\n\n` +
-                  evCtx.confirmedFindings.map(c => `- **${c.id}**: ${(c.metadata?.title as string) ?? ''} — fitness ${c.fitness.composite.toFixed(2)}`).join('\n')
-                );
-              }
-              // Parent ID hint
-              const parentIds = evCtx.positiveExamples.map(c => c.id);
-              if (parentIds.length > 0) {
-                sections.push(
-                  `## Lineage instruction\n\n` +
-                  `When you generate a new conjecture that builds on one of the top examples above, set its \`parent_ids\` field to include the source conjecture IDs. This is required for lineage tracking.`
-                );
-              }
+          if (evoResult && ctx.attemptNumber >= 2) {
+            if (evoResult.positiveExamples.length > 0) {
+              sections.push(
+                `## Top conjectures from previous rounds (build on these)\n\n` +
+                evoResult.positiveExamples.map(formatPositiveExample).join('\n\n')
+              );
+            }
+            if (evoResult.negativeExamples.length > 0) {
+              sections.push(
+                `## Falsified conjectures (DO NOT repeat these mistakes)\n\n` +
+                evoResult.negativeExamples.map(formatNegativeExample).join('\n\n')
+              );
+            }
+            if (evoResult.ancestors.length > 0) {
+              sections.push(
+                `## Confirmed findings so far\n\n` +
+                evoResult.ancestors.map(c => `- **${c.id}**: ${(c.metadata?.title as string) ?? ''} — fitness ${c.fitness.composite.toFixed(2)}`).join('\n')
+              );
+            }
+            const parentIds = evoResult.positiveExamples.map(c => c.id);
+            if (parentIds.length > 0) {
+              sections.push(
+                `## Lineage instruction\n\n` +
+                `When you generate a new conjecture that builds on one of the top examples above, set its \`parent_ids\` field to include the source conjecture IDs.`
+              );
             }
           }
           break;
@@ -366,7 +387,6 @@ const plugin: WorkflowPlugin = {
 
         case 'verifier':
         case 'cross_checker': {
-          // Process backends — purpose is informational only
           if (scope) {
             sections.push(`## Scope\n\n${scope}`);
           }
@@ -388,66 +408,74 @@ const plugin: WorkflowPlugin = {
         }
 
         case 'selector': {
-          // Aggregator — show pool summary
-          const all = context.pool.getAll();
-          const confirmed = context.pool.getConfirmed();
-          const falsified = context.pool.getFalsified();
-          const maxFitness = Math.max(0, ...all.map(c => c.fitness.composite));
-          const threshold = (context.config.fitness_success_threshold as number) ?? 0.9;
-          const maxRounds = (context.config.max_rounds as number) ?? 5;
+          // Load pool from disk for summary
+          const poolPath = path.join(ctx.platform.runDirectory, 'pool-state.json');
+          const poolSnap = await readJsonSafe<PoolSnapshot>(poolPath);
+          if (poolSnap) {
+            const pool = poolFromSnapshot(poolSnap);
+            const all = pool.getAll();
+            const confirmed = pool.getConfirmed();
+            const falsified = pool.getFalsified();
+            const maxFitness = Math.max(0, ...all.map(c => c.fitness.composite));
+            const threshold = (ctx.upstreamHandoffs['fitness_success_threshold'] as number) ?? 0.9;
+            const maxRounds = (ctx.upstreamHandoffs['max_rounds'] as number) ?? 5;
 
-          sections.push(
-            `## Pool Summary (round ${context.round})\n\n` +
-            `- Total candidates: ${all.length}\n` +
-            `- Confirmed: ${confirmed.length}\n` +
-            `- Falsified: ${falsified.length}\n` +
-            `- Max composite fitness: ${maxFitness.toFixed(3)}\n` +
-            `- Success threshold: ${threshold}\n` +
-            `- Rounds completed: ${context.round} / ${maxRounds}`
-          );
-
-          if (confirmed.length > 0) {
             sections.push(
-              `## Confirmed conjectures\n\n` +
-              confirmed.slice(0, 5).map(c =>
-                `- **${c.id}** (fitness=${c.fitness.composite.toFixed(2)}): ${(c.metadata?.title as string) ?? ''}\n  Formula: ${(c.metadata?.formula as string) ?? ''}`
-              ).join('\n\n')
+              `## Pool Summary (round ${ctx.attemptNumber})\n\n` +
+              `- Total candidates: ${all.length}\n` +
+              `- Confirmed: ${confirmed.length}\n` +
+              `- Falsified: ${falsified.length}\n` +
+              `- Max composite fitness: ${maxFitness.toFixed(3)}\n` +
+              `- Success threshold: ${threshold}\n` +
+              `- Rounds completed: ${ctx.attemptNumber} / ${maxRounds}`
+            );
+
+            if (confirmed.length > 0) {
+              sections.push(
+                `## Confirmed conjectures\n\n` +
+                confirmed.slice(0, 5).map(c =>
+                  `- **${c.id}** (fitness=${c.fitness.composite.toFixed(2)}): ${(c.metadata?.title as string) ?? ''}\n  Formula: ${(c.metadata?.formula as string) ?? ''}`
+                ).join('\n\n')
+              );
+            }
+
+            const shouldStop = maxFitness >= threshold || ctx.attemptNumber >= maxRounds;
+            sections.push(
+              `## Decision\n\n` +
+              `Based on the pool state, ${shouldStop ? 'TERMINATE and route to reporter' : 'CONTINUE and route back to conjecturer for another round'}.\n` +
+              `Return decision.status = "converged" to finish, or "continue" to loop back.`
             );
           }
-
-          // Termination hint
-          const shouldStop = maxFitness >= threshold || context.round >= maxRounds;
-          sections.push(
-            `## Decision\n\n` +
-            `Based on the pool state, ${shouldStop ? 'TERMINATE and route to reporter' : 'CONTINUE and route back to conjecturer for another round'}.\n` +
-            `Return decision.status = "converged" to finish, or "continue" to loop back.`
-          );
           break;
         }
 
         case 'reporter': {
-          const confirmed = context.pool.getConfirmed().sort((a, b) => b.fitness.composite - a.fitness.composite);
-          if (confirmed.length > 0) {
-            const winner = confirmed[0];
-            sections.push(
-              `## Winning Conjecture\n\n` +
-              `**ID**: ${winner.id}\n` +
-              `**Title**: ${(winner.metadata?.title as string) ?? ''}\n` +
-              `**Fitness**: ${winner.fitness.composite.toFixed(3)}\n` +
-              `**Dimensions**: ${JSON.stringify(winner.fitness.dimensions)}\n` +
-              `**Formula**: ${(winner.metadata?.formula as string) ?? ''}\n` +
-              `**Lineage**: ${winner.parentIds.join(' → ') || '(none)'}\n`
-            );
-            // Include full artifacts for the winner
-            const scope = winner.id;
-            const conjecture = await readJsonSafe(path.join(sharedDir, 'conjectures', `${scope}.json`));
-            const verification = await readJsonSafe(path.join(sharedDir, 'verification', `${scope}-verification.json`));
-            const crosscheck = await readJsonSafe(path.join(sharedDir, 'verification', `${scope}-crosscheck.json`));
-            if (conjecture) sections.push(`## Conjecture Details\n\n\`\`\`json\n${JSON.stringify(conjecture, null, 2)}\n\`\`\``);
-            if (verification) sections.push(`## Verification\n\n\`\`\`json\n${JSON.stringify(verification, null, 2)}\n\`\`\``);
-            if (crosscheck) sections.push(`## Cross-Check\n\n\`\`\`json\n${JSON.stringify(crosscheck, null, 2)}\n\`\`\``);
-          } else {
-            sections.push(`## No winning conjecture\n\nNo confirmed conjectures in the pool after ${context.round} rounds.`);
+          const poolPath = path.join(ctx.platform.runDirectory, 'pool-state.json');
+          const poolSnap = await readJsonSafe<PoolSnapshot>(poolPath);
+          if (poolSnap) {
+            const pool = poolFromSnapshot(poolSnap);
+            const confirmed = pool.getConfirmed().sort((a, b) => b.fitness.composite - a.fitness.composite);
+            if (confirmed.length > 0) {
+              const winner = confirmed[0];
+              sections.push(
+                `## Winning Conjecture\n\n` +
+                `**ID**: ${winner.id}\n` +
+                `**Title**: ${(winner.metadata?.title as string) ?? ''}\n` +
+                `**Fitness**: ${winner.fitness.composite.toFixed(3)}\n` +
+                `**Dimensions**: ${JSON.stringify(winner.fitness.dimensions)}\n` +
+                `**Formula**: ${(winner.metadata?.formula as string) ?? ''}\n` +
+                `**Lineage**: ${winner.parentIds.join(' -> ') || '(none)'}\n`
+              );
+              const winnerScope = winner.id;
+              const conjecture = await readJsonSafe(path.join(sharedDir, 'conjectures', `${winnerScope}.json`));
+              const verification = await readJsonSafe(path.join(sharedDir, 'verification', `${winnerScope}-verification.json`));
+              const crosscheck = await readJsonSafe(path.join(sharedDir, 'verification', `${winnerScope}-crosscheck.json`));
+              if (conjecture) sections.push(`## Conjecture Details\n\n\`\`\`json\n${JSON.stringify(conjecture, null, 2)}\n\`\`\``);
+              if (verification) sections.push(`## Verification\n\n\`\`\`json\n${JSON.stringify(verification, null, 2)}\n\`\`\``);
+              if (crosscheck) sections.push(`## Cross-Check\n\n\`\`\`json\n${JSON.stringify(crosscheck, null, 2)}\n\`\`\``);
+            } else {
+              sections.push(`## No winning conjecture\n\nNo confirmed conjectures in the pool after ${ctx.attemptNumber} rounds.`);
+            }
           }
           break;
         }
@@ -456,43 +484,38 @@ const plugin: WorkflowPlugin = {
       console.error('[sequence-explorer] onPurposeGenerate error:', err);
     }
 
-    return sections.join('\n\n---\n\n');
+    return { append: sections.join('\n\n---\n\n') };
   },
 
-  onEvaluateReadiness(nodeName, allNodes) {
-    // Selector waits for all critic scopes to terminate (handled by depends_on_all).
-    // No custom logic needed here; the platform's evaluateDependsOnAll handles it.
-    return null;
+  async onEvaluateReadiness(ctx: ReadinessContext): Promise<ReadinessDecision> {
+    // Platform handles scoped-node readiness via depends_on_all
+    return { ready: false };
   },
 
-  async onResolveRouting(
-    nodeName: string,
-    signal: SignalFile,
-    _branchRules: Array<{ condition: string; goto: string; foreach?: string }>,
-  ): Promise<RoutingResult | null> {
-    const agentBase = nodeName.split('.')[0];
+  async onResolveRouting(ctx: RoutingContext): Promise<RoutingDecision | null> {
+    const agentBase = ctx.sourceNode.split('.')[0];
 
     if (agentBase === 'conjecturer') {
-      const decision = signal.decision as any;
+      const decision = ctx.decision as any;
       const ids: string[] = decision?.conjecture_ids ?? [];
       if (ids.length > 0) {
-        return { goto: 'formalizer', foreach: 'conjecture_ids', payload: ids };
+        return { selectedBranch: 'formalizer', foreach: 'conjecture_ids', payload: ids };
       }
     }
 
     if (agentBase === 'selector') {
-      const decision = signal.decision as any;
+      const decision = ctx.decision as any;
       if (decision?.status === 'converged') {
-        return { goto: 'reporter' };
+        return { selectedBranch: 'reporter' };
       } else {
-        return { goto: 'conjecturer' };
+        return { selectedBranch: 'conjecturer' };
       }
     }
 
     return null;
   },
 
-  async onWorkflowComplete(_workspacePath: string, _summary: WorkflowSummary): Promise<void> {
+  async onWorkflowComplete(_ctx: WorkflowCompleteContext): Promise<void> {
     // Reporter produces the final finding.md as part of the pipeline.
   },
 };
