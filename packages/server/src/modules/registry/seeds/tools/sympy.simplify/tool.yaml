@@ -1,26 +1,21 @@
 name: sympy.simplify
 version: 1
-description: Simplify a symbolic mathematical expression using SymPy.
+description: Simplify a symbolic expression using SymPy's general heuristics.
 category: symbolic_math
-tags: [sympy, symbolic, simplify, algebra]
-
 inputs:
-  expr:
+  expression:
     schema: SymbolicExpr
     required: true
     description: Symbolic expression to simplify.
-
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
-  result:
+  simplified:
     schema: SymbolicExpr
     description: Simplified symbolic expression.
-
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [sympy]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: fast

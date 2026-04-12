@@ -1,4 +1,3 @@
-def run(df):
-    import numpy as np
-    matrix = df.corr(numeric_only=True).to_numpy()
-    return {"matrix": matrix}
+def run(df, method="pearson"):
+    corr = df.corr(method=method, numeric_only=True)
+    return {"corr": corr}

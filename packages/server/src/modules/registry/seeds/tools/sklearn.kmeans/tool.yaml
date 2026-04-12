@@ -1,11 +1,9 @@
 name: sklearn.kmeans
 version: 1
-description: K-Means clustering — partition NumpyArray data into n_clusters clusters.
+description: K-means clustering of a numeric matrix.
 category: clustering
-tags: [kmeans, clustering, scikit-learn, numpy]
-
 inputs:
-  X:
+  matrix:
     schema: NumpyArray
     required: true
     description: Input data matrix (n_samples x n_features).
@@ -13,24 +11,24 @@ inputs:
     schema: Integer
     required: true
     description: Number of clusters to form.
-
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   labels:
     schema: NumpyArray
     description: Cluster labels for each sample (n_samples,).
-  centroids:
+  centers:
     schema: NumpyArray
     description: Cluster centers (n_clusters x n_features).
   inertia:
     schema: Float
     description: Sum of squared distances of samples to their nearest cluster center.
-
+  model:
+    schema: ClusteringModel
+    description: Trained KMeans model object.
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [numpy, scikit-learn]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: medium

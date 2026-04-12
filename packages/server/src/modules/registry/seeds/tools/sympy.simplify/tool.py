@@ -1,3 +1,4 @@
-def run(expr):
+def run(expression, extra_params=None):
     import sympy
-    return {"result": sympy.simplify(expr)}
+    extra_params = extra_params or {}
+    return {"simplified": sympy.simplify(expression, **extra_params)}

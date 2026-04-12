@@ -1,40 +1,40 @@
 name: statsmodels.garch
 version: 1
-description: Fit a GARCH(p,q) model to a return series using the arch package and return parameters, conditional volatility, and AIC.
+description: Fit a GARCH model to a return series.
 category: time_series
-tags: [garch, volatility, arch, time-series, numpy]
-
 inputs:
   returns:
-    schema: NumpyArray
+    schema: ReturnSeries
     required: true
-    description: 1-D array of return values (e.g. log-returns).
+    description: Return series (e.g. log-returns).
   p:
     schema: Integer
-    required: true
+    required: false
+    default: 1
     description: GARCH lag order p.
   q:
     schema: Integer
-    required: true
+    required: false
+    default: 1
     description: ARCH lag order q.
-
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
-  params:
-    schema: NumpyArray
-    description: Fitted model parameters.
-  conditional_volatility:
-    schema: NumpyArray
-    description: Estimated conditional volatility series.
   aic:
     schema: Float
     description: Akaike Information Criterion of the fitted model.
-
+  bic:
+    schema: Float
+    description: Bayesian Information Criterion of the fitted model.
+  conditional_volatility:
+    schema: Series
+    description: Estimated conditional volatility series.
+  model:
+    schema: RegressionModel
+    description: Fitted GARCH model result object.
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [numpy, arch]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: medium

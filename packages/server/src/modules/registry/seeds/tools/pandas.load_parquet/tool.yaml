@@ -1,15 +1,22 @@
 name: pandas.load_parquet
 version: 1
+description: Load a Parquet file into a DataFrame.
 category: data_io
-description: Load a Parquet file from disk into a pandas DataFrame.
-requires:
-  - pandas
-  - pyarrow
 inputs:
   path:
     schema: String
     required: true
     description: Absolute or relative path to the Parquet file.
+  columns:
+    schema: JsonArray
+    required: false
+    default: null
+    description: List of column names to load (loads all if null).
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   df:
     schema: DataFrame

@@ -1,4 +1,5 @@
-def run(values):
-    if not values:
-        raise ValueError("values must be a non-empty list")
-    return {"mean": sum(values) / len(values)}
+def run(values, axis=None):
+    import numpy as np
+    arr = np.array(values, dtype=float)
+    result = np.mean(arr) if axis is None else np.mean(arr, axis=axis)
+    return {"mean": float(result)}

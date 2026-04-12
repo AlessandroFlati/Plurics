@@ -1,11 +1,9 @@
 name: sklearn.gaussian_mixture
 version: 1
-description: Gaussian Mixture Model clustering — probabilistic clustering of NumpyArray data.
+description: Gaussian Mixture Model clustering.
 category: clustering
-tags: [gaussian-mixture, gmm, clustering, scikit-learn, numpy]
-
 inputs:
-  X:
+  matrix:
     schema: NumpyArray
     required: true
     description: Input data matrix (n_samples x n_features).
@@ -13,24 +11,27 @@ inputs:
     schema: Integer
     required: true
     description: Number of mixture components.
-
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   labels:
     schema: NumpyArray
     description: Component labels for each sample (n_samples,).
-  means:
+  probabilities:
     schema: NumpyArray
-    description: Means of each mixture component (n_components x n_features).
+    description: Soft assignment probabilities for each sample (n_samples x n_components).
+  aic:
+    schema: Float
+    description: Akaike Information Criterion value.
   bic:
     schema: Float
     description: Bayesian Information Criterion value.
-
+  model:
+    schema: ClusteringModel
+    description: Trained GaussianMixture model object.
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [numpy, scikit-learn]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: medium

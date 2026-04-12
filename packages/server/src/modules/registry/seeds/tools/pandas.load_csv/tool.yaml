@@ -1,12 +1,32 @@
 name: pandas.load_csv
 version: 1
-description: Load a CSV file from disk into a pandas DataFrame.
+description: Load a CSV file into a DataFrame, with optional column type hints.
 category: data_io
 inputs:
   path:
     schema: String
     required: true
     description: Absolute or relative path to the CSV file.
+  parse_dates:
+    schema: JsonArray
+    required: false
+    default: null
+    description: List of column names to parse as dates.
+  index_col:
+    schema: String
+    required: false
+    default: null
+    description: Column to use as the row index.
+  dtype:
+    schema: JsonObject
+    required: false
+    default: null
+    description: Dict mapping column names to dtype strings.
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   df:
     schema: DataFrame

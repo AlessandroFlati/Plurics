@@ -1,30 +1,28 @@
 name: ts.granger_causality
 version: 1
-description: Test Granger causality between two time series up to a given max lag using statsmodels.
+description: Granger causality test between two time series.
 category: time_series
-tags: [granger, causality, statsmodels, numpy]
-
 inputs:
-  data:
-    schema: NumpyArray
+  cause:
+    schema: Series
     required: true
-    description: 2-D array of shape (n_samples, 2) — first column is the dependent series, second is the potential cause.
+    description: The series hypothesized as the Granger cause.
+  effect:
+    schema: Series
+    required: true
+    description: The series hypothesized as the Granger effect.
   max_lag:
     schema: Integer
-    required: true
+    required: false
+    default: 10
     description: Maximum number of lags to test.
-
 outputs:
-  results:
-    schema: JsonObject
-    description: Dictionary mapping lag number to test statistics and p-values.
-
+  p_values:
+    schema: JsonArray
+    description: p-value for each lag from 1 to max_lag (F-test).
+  best_lag:
+    schema: Integer
+    description: Lag with the lowest p-value.
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [numpy, statsmodels]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: medium

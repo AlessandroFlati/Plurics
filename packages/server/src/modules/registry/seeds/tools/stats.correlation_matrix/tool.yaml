@@ -1,16 +1,21 @@
 name: stats.correlation_matrix
 version: 1
-description: Compute the Pearson correlation matrix for all numeric columns in a DataFrame.
+description: Compute the pairwise correlation matrix of a DataFrame's columns.
 category: descriptive_stats
 inputs:
   df:
     schema: DataFrame
     required: true
     description: Input DataFrame (numeric columns only are used).
+  method:
+    schema: String
+    required: false
+    default: "pearson"
+    description: "Correlation method: 'pearson', 'spearman', or 'kendall'."
 outputs:
-  matrix:
-    schema: NumpyArray
-    description: Correlation matrix as a 2-D numpy array.
+  corr:
+    schema: DataFrame
+    description: Correlation matrix as a square DataFrame indexed by column names.
 implementation:
   language: python
   entry_point: tool.py:run

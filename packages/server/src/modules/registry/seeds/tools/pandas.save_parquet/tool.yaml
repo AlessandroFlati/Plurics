@@ -1,10 +1,7 @@
 name: pandas.save_parquet
 version: 1
+description: Write a DataFrame to a Parquet file.
 category: data_io
-description: Write a pandas DataFrame to a Parquet file on disk.
-requires:
-  - pandas
-  - pyarrow
 inputs:
   df:
     schema: DataFrame
@@ -14,10 +11,15 @@ inputs:
     schema: String
     required: true
     description: Destination file path (will be created or overwritten).
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
-  written:
-    schema: Boolean
-    description: True if the file was written successfully.
+  path:
+    schema: String
+    description: The path written (for chaining).
 implementation:
   language: python
   entry_point: tool.py:run

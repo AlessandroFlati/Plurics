@@ -1,16 +1,21 @@
 name: stats.describe
 version: 1
-description: Compute descriptive statistics for each numeric column in a DataFrame.
+description: Compute summary statistics (count, mean, std, min, quartiles, max) for numeric columns.
 category: descriptive_stats
 inputs:
   df:
     schema: DataFrame
     required: true
     description: Input DataFrame to summarise.
+  percentiles:
+    schema: JsonArray
+    required: false
+    default: [0.25, 0.5, 0.75]
+    description: List of percentiles to include in the summary.
 outputs:
-  summary:
-    schema: JsonObject
-    description: Descriptive statistics as a nested dict (column -> stat -> value).
+  stats:
+    schema: DataFrame
+    description: Summary statistics as a DataFrame (stats as index, columns as columns).
 implementation:
   language: python
   entry_point: tool.py:run

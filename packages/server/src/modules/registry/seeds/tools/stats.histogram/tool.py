@@ -1,8 +1,8 @@
-def run(values, bins):
+def run(values, bins=10, range=None):
     import numpy as np
-    if not values:
-        raise ValueError("values must be a non-empty list")
-    if bins < 1:
-        raise ValueError("bins must be >= 1")
-    counts, edges = np.histogram(values, bins=bins)
-    return {"counts": counts.tolist(), "edges": edges.tolist()}
+    arr = np.array(values, dtype=float)
+    kwargs = {}
+    if range is not None:
+        kwargs['range'] = tuple(range)
+    counts, bin_edges = np.histogram(arr, bins=bins, **kwargs)
+    return {"counts": counts, "bin_edges": bin_edges}

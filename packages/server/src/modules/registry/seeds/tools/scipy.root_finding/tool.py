@@ -2,19 +2,24 @@
 # Extend FUNCTIONS to add more named functions; do not use eval/exec.
 
 FUNCTIONS = {
-    'quadratic_shift': lambda x: [x[0]**2 - 2],
-    'cubic':           lambda x: [x[0]**3 - x[0] - 2],
-    'linear_system':   lambda x: [2 * x[0] + x[1] - 1, x[0] - x[1]],
+    'quadratic_shift': lambda x: x**2 - 2,
+    'cubic':           lambda x: x**3 - x - 2,
+    'sine':            lambda x: __import__('math').sin(x),
 }
 
 
-def run(x0, method, func_name):
-    from scipy.optimize import root
-    import numpy as np
-    if func_name not in FUNCTIONS:
-        raise ValueError(f"Unknown func_name '{func_name}'. Available: {list(FUNCTIONS)}")
-    result = root(FUNCTIONS[func_name], np.array(x0), method=method)
+def run(function, bracket, extra_params=None):
+    from scipy.optimize import brentq
+    extra_params = extra_params or {}
+    if function not in FUNCTIONS:
+        raise ValueError(f"Unknown function '{function}'. Available: {list(FUNCTIONS)}")
+    a, b = float(bracket[0]), float(bracket[1])
+    try:
+        root = brentq(FUNCTIONS[function], a, b, **extra_params)
+        converged = True
+    except ValueError as exc:
+        raise ValueError(f"Root finding failed: {exc}") from exc
     return {
-        "x": result.x,
-        "success": bool(result.success),
+        "root": float(root),
+        "converged": converged,
     }

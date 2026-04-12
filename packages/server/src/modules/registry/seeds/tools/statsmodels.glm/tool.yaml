@@ -1,9 +1,9 @@
 name: statsmodels.glm
 version: 1
-description: Fit a Generalized Linear Model using statsmodels and return coefficients, p-values, and AIC.
+description: Generalized linear model with configurable link function and family.
 category: regression
 inputs:
-  X:
+  x:
     schema: NumpyArray
     required: true
     description: Feature matrix of shape (n_samples, n_features). A constant is added automatically.
@@ -13,8 +13,14 @@ inputs:
     description: Target vector of shape (n_samples,).
   family:
     schema: String
-    required: true
-    description: GLM family name — one of 'gaussian', 'binomial', 'poisson'.
+    required: false
+    default: "gaussian"
+    description: "GLM family: 'gaussian', 'binomial', 'poisson', 'gamma', 'inverse_gaussian', 'negative_binomial', 'tweedie'."
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   coefficients:
     schema: NumpyArray
@@ -22,9 +28,9 @@ outputs:
   p_values:
     schema: NumpyArray
     description: P-values for each coefficient.
-  aic:
-    schema: Float
-    description: Akaike Information Criterion of the fitted model.
+  model:
+    schema: RegressionModel
+    description: Trained GLM result object.
 implementation:
   language: python
   entry_point: tool.py:run

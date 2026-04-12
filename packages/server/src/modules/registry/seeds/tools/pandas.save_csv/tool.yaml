@@ -1,6 +1,6 @@
 name: pandas.save_csv
 version: 1
-description: Write a pandas DataFrame to a CSV file on disk.
+description: Write a DataFrame to a CSV file.
 category: data_io
 inputs:
   df:
@@ -11,10 +11,20 @@ inputs:
     schema: String
     required: true
     description: Destination file path (will be created or overwritten).
-outputs:
-  written:
+  index:
     schema: Boolean
-    description: True if the file was written successfully.
+    required: false
+    default: true
+    description: Whether to write the DataFrame index as a column.
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
+outputs:
+  path:
+    schema: String
+    description: The path written (for chaining).
 implementation:
   language: python
   entry_point: tool.py:run

@@ -1,9 +1,9 @@
 name: sklearn.ridge_regression
 version: 1
-description: Fit a Ridge regression model using scikit-learn and return coefficients, intercept, and R-squared.
+description: L2-regularized linear regression.
 category: regression
 inputs:
-  X:
+  x:
     schema: NumpyArray
     required: true
     description: Feature matrix of shape (n_samples, n_features).
@@ -13,8 +13,14 @@ inputs:
     description: Target vector of shape (n_samples,).
   alpha:
     schema: Float
-    required: true
-    description: Regularization strength; must be a positive float.
+    required: false
+    default: 1.0
+    description: L2 regularization strength (must be positive).
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   coefficients:
     schema: NumpyArray
@@ -25,6 +31,9 @@ outputs:
   r_squared:
     schema: Float
     description: Coefficient of determination (R^2) on the training data.
+  model:
+    schema: RegressionModel
+    description: Trained regression model object.
 implementation:
   language: python
   entry_point: tool.py:run

@@ -1,13 +1,12 @@
-def run(X, n_components):
+def run(matrix, n_components=None, whiten=False, extra_params=None):
     from sklearn.decomposition import PCA
     import numpy as np
-    X_arr = np.array(X)
-    if n_components < 1:
-        raise ValueError("n_components must be >= 1")
-    pca = PCA(n_components=n_components)
-    transformed = pca.fit_transform(X_arr)
+    extra_params = extra_params or {}
+    X_arr = np.array(matrix)
+    pca = PCA(n_components=n_components, whiten=whiten, **extra_params)
+    loadings = pca.fit_transform(X_arr)
     return {
         "components": pca.components_,
-        "explained_variance": pca.explained_variance_,
-        "transformed": transformed,
+        "loadings": loadings,
+        "explained_variance_ratio": pca.explained_variance_ratio_.tolist(),
     }

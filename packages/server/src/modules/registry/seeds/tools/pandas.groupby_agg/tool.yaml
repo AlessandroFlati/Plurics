@@ -1,9 +1,7 @@
 name: pandas.groupby_agg
 version: 1
-description: Group a DataFrame by columns and aggregate using specified functions.
+description: Group a DataFrame by one or more columns and aggregate.
 category: data_transformation
-tags: [pandas, groupby, aggregate, dataframe]
-
 inputs:
   df:
     schema: DataFrame
@@ -16,19 +14,11 @@ inputs:
   agg:
     schema: JsonObject
     required: true
-    description: Aggregation spec mapping column names to aggregation functions.
-
+    description: Aggregation spec mapping column names to aggregation function names.
 outputs:
-  result:
+  aggregated:
     schema: DataFrame
     description: Aggregated DataFrame.
-
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [pandas, numpy]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: fast

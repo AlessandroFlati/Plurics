@@ -1,12 +1,17 @@
 name: stats.mean
 version: 1
-description: Compute the arithmetic mean of a list of numbers.
+description: Compute the arithmetic mean of a numeric array or series.
 category: descriptive_stats
 inputs:
   values:
-    schema: JsonArray
+    schema: NumpyArray
     required: true
-    description: List of numeric values.
+    description: Numeric array of values.
+  axis:
+    schema: Integer
+    required: false
+    default: null
+    description: Axis along which to compute the mean. When null, returns the global mean.
 outputs:
   mean:
     schema: Float

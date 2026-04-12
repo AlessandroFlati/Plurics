@@ -1,12 +1,10 @@
-def run(values):
-    import numpy as np
+def run(series, regression="c", extra_params=None):
     from statsmodels.tsa.stattools import adfuller
-    arr = np.array(values, dtype=float)
-    result = adfuller(arr)
-    statistic, p_value, used_lag, _, critical_values, _ = result
+    extra_params = extra_params or {}
+    result = adfuller(series, regression=regression, **extra_params)
+    statistic, p_value, _used_lag, _nobs, critical_values = result[0], result[1], result[2], result[3], result[4]
     return {
         "statistic": float(statistic),
         "p_value": float(p_value),
-        "used_lag": int(used_lag),
         "critical_values": {k: float(v) for k, v in critical_values.items()},
     }

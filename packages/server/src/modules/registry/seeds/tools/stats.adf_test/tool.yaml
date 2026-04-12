@@ -1,12 +1,22 @@
 name: stats.adf_test
 version: 1
-description: Perform the Augmented Dickey-Fuller unit root test for stationarity.
+description: Augmented Dickey-Fuller test for stationarity of a time series.
 category: hypothesis_testing
 inputs:
-  values:
-    schema: NumpyArray
+  series:
+    schema: Series
     required: true
-    description: Time series (1-D array of numbers).
+    description: Time series to test for stationarity.
+  regression:
+    schema: String
+    required: false
+    default: "c"
+    description: "Deterministic term: 'c' (constant), 'ct' (constant+trend), 'ctt', or 'n' (none)."
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   statistic:
     schema: Float
@@ -14,9 +24,6 @@ outputs:
   p_value:
     schema: Float
     description: MacKinnon approximate p-value.
-  used_lag:
-    schema: Integer
-    description: Number of lags used in the test.
   critical_values:
     schema: JsonObject
     description: Critical values at 1%, 5%, and 10% significance levels.

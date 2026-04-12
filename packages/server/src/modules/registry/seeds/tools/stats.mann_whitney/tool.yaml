@@ -1,16 +1,21 @@
 name: stats.mann_whitney
 version: 1
-description: Perform the Mann-Whitney U rank test (non-parametric two-sample test).
+description: Mann-Whitney U test, a non-parametric alternative to the t-test.
 category: hypothesis_testing
 inputs:
-  a:
+  sample_a:
     schema: NumpyArray
     required: true
     description: First sample (1-D array of numbers).
-  b:
+  sample_b:
     schema: NumpyArray
     required: true
     description: Second sample (1-D array of numbers).
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   statistic:
     schema: Float

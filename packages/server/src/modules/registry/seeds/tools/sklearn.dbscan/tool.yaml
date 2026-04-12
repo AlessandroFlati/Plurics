@@ -1,37 +1,32 @@
 name: sklearn.dbscan
 version: 1
-description: DBSCAN clustering — density-based clustering of NumpyArray data.
+description: DBSCAN density-based clustering.
 category: clustering
-tags: [dbscan, clustering, density-based, scikit-learn, numpy]
-
 inputs:
-  X:
+  matrix:
     schema: NumpyArray
     required: true
     description: Input data matrix (n_samples x n_features).
   eps:
     schema: Float
-    required: true
-    description: Maximum distance between two samples for one to be considered as in the neighborhood of the other.
+    required: false
+    default: 0.5
+    description: Maximum distance between two samples to be considered neighbors.
   min_samples:
     schema: Integer
-    required: true
-    description: The number of samples in a neighborhood for a point to be considered a core point.
-
+    required: false
+    default: 5
+    description: Minimum number of samples in a neighborhood for a core point.
 outputs:
   labels:
     schema: NumpyArray
     description: Cluster labels; -1 indicates noise points.
   n_clusters:
     schema: Integer
-    description: Number of clusters (excluding noise points).
-
+    description: Number of clusters found (excluding noise).
+  n_noise:
+    schema: Integer
+    description: Number of noise points (labeled -1).
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [numpy, scikit-learn]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: medium

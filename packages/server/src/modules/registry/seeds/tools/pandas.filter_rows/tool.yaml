@@ -1,9 +1,7 @@
 name: pandas.filter_rows
 version: 1
-description: Filter a DataFrame using a query string expression.
+description: Filter rows of a DataFrame using a query expression.
 category: data_transformation
-tags: [pandas, filter, query, dataframe]
-
 inputs:
   df:
     schema: DataFrame
@@ -13,18 +11,10 @@ inputs:
     schema: String
     required: true
     description: Query string expression (passed to DataFrame.query()).
-
 outputs:
-  result:
+  filtered:
     schema: DataFrame
     description: Filtered DataFrame.
-
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [pandas, numpy]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: fast

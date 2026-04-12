@@ -1,20 +1,25 @@
 name: stats.ks_test
 version: 1
-description: Perform the two-sample Kolmogorov-Smirnov test.
+description: Kolmogorov-Smirnov test against a reference distribution.
 category: hypothesis_testing
 inputs:
-  a:
+  values:
     schema: NumpyArray
     required: true
-    description: First sample (1-D array of numbers).
-  b:
-    schema: NumpyArray
+    description: Sample to test (1-D array of numbers).
+  distribution:
+    schema: String
     required: true
-    description: Second sample (1-D array of numbers).
+    description: "Name of a scipy.stats distribution to test against (e.g. 'norm', 'uniform', 'expon')."
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to scipy.stats.kstest (e.g. distribution parameters).
 outputs:
   statistic:
     schema: Float
-    description: KS statistic (maximum absolute difference between CDFs).
+    description: KS statistic.
   p_value:
     schema: Float
     description: Two-sided p-value.

@@ -1,22 +1,28 @@
 name: stats.histogram
 version: 1
-description: Compute a histogram of a list of numbers.
+description: Compute a histogram of a numeric array.
 category: descriptive_stats
 inputs:
   values:
-    schema: JsonArray
+    schema: NumpyArray
     required: true
-    description: List of numeric values.
+    description: Numeric array of values.
   bins:
     schema: Integer
-    required: true
+    required: false
+    default: 10
     description: Number of histogram bins.
+  range:
+    schema: JsonArray
+    required: false
+    default: null
+    description: "Optional [min, max] range for the histogram bins."
 outputs:
   counts:
-    schema: JsonArray
+    schema: NumpyArray
     description: Count of values in each bin.
-  edges:
-    schema: JsonArray
+  bin_edges:
+    schema: NumpyArray
     description: Bin edge values (length = bins + 1).
 implementation:
   language: python

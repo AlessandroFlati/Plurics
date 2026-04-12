@@ -1,20 +1,29 @@
 name: stats.autocorrelation
 version: 1
-description: Compute the autocorrelation function (ACF) of a signal up to max_lag.
+description: Compute the autocorrelation function of a time series up to a given lag.
 category: descriptive_stats
 inputs:
-  values:
-    schema: JsonArray
+  series:
+    schema: Series
     required: true
-    description: Real-valued time series samples.
-  max_lag:
+    description: Time series values.
+  nlags:
     schema: Integer
-    required: true
-    description: Maximum lag to compute (inclusive).
+    required: false
+    default: 40
+    description: Maximum lag to compute (inclusive). Defaults to 40.
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   acf:
-    schema: JsonArray
-    description: Autocorrelation values at lags 0..max_lag.
+    schema: NumpyArray
+    description: Autocorrelation values at lags 0..nlags.
+  confint:
+    schema: NumpyArray
+    description: Confidence intervals for each lag (returned when alpha is provided in extra_params).
 implementation:
   language: python
   entry_point: tool.py:run

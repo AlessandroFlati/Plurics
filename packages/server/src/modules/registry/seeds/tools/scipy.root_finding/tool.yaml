@@ -1,37 +1,28 @@
 name: scipy.root_finding
 version: 1
-description: Find the root of a scalar function using scipy.optimize.root. The function is selected by name from the built-in function registry.
+description: Find a root of a scalar function in a bracketing interval.
 category: optimization
-tags: [optimization, root-finding, scipy, numpy]
-
 inputs:
-  x0:
-    schema: NumpyArray
-    required: true
-    description: Initial guess for the root (1-D array).
-  method:
+  function:
     schema: String
     required: true
-    description: Root-finding method (e.g. 'hybr', 'lm', 'broyden1').
-  func_name:
-    schema: String
+    description: "Name of the function from the built-in registry: 'quadratic_shift', 'cubic', 'linear_system'."
+  bracket:
+    schema: JsonArray
     required: true
-    description: "Name of the function from the built-in registry. Available: quadratic_shift, cubic, linear_system."
-
+    description: "Bracketing interval [a, b] where the function changes sign."
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
-  x:
-    schema: NumpyArray
-    description: Solution array (root).
-  success:
+  root:
+    schema: Float
+    description: The root found.
+  converged:
     schema: Boolean
     description: Whether the root-finding converged successfully.
-
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [numpy, scipy]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: medium

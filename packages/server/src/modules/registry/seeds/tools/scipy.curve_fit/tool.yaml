@@ -1,41 +1,32 @@
 name: scipy.curve_fit
 version: 1
-description: Fit a named model function to data using scipy.optimize.curve_fit. The model function is selected by name from the built-in function registry.
+description: Fit a parameterized function to data.
 category: optimization
-tags: [optimization, curve-fit, regression, scipy, numpy]
-
 inputs:
-  xdata:
+  function:
+    schema: String
+    required: true
+    description: "Name of the model function from the built-in registry: 'linear', 'quadratic', 'exponential'."
+  x:
     schema: NumpyArray
     required: true
     description: Independent variable data (1-D array).
-  ydata:
+  y:
     schema: NumpyArray
     required: true
-    description: Dependent variable data (1-D array), same length as xdata.
-  p0:
+    description: Dependent variable data (1-D array), same length as x.
+  initial_guess:
     schema: NumpyArray
-    required: true
+    required: false
+    default: null
     description: Initial parameter guess for the model function.
-  func_name:
-    schema: String
-    required: true
-    description: "Name of the model function from the built-in registry. Available: linear, quadratic, exponential."
-
 outputs:
-  popt:
+  parameters:
     schema: NumpyArray
     description: Optimal values for the parameters.
-  pcov:
+  covariance:
     schema: NumpyArray
-    description: Estimated covariance matrix of popt.
-
+    description: Estimated covariance matrix of the parameters.
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [numpy, scipy]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: medium

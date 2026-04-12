@@ -30,10 +30,9 @@ describe('loadSeedTools — unit (no Python required)', () => {
     // All tools appear in list()
     expect(client.list().length).toBeGreaterThanOrEqual(80);
 
-    // pandas.load_csv — single String input, DataFrame output
+    // pandas.load_csv — path (String) required, plus 4 optional inputs, DataFrame output
     const loadCsv = client.get('pandas.load_csv');
     expect(loadCsv).not.toBeNull();
-    expect(loadCsv!.inputs).toHaveLength(1);
     expect(loadCsv!.inputs[0].schemaName).toBe('String');
     expect(loadCsv!.outputs[0].schemaName).toBe('DataFrame');
 

@@ -8,15 +8,16 @@ FUNCTIONS = {
 }
 
 
-def run(x0, method, func_name):
+def run(function, initial_guess, method="BFGS", extra_params=None):
     from scipy.optimize import minimize
     import numpy as np
-    if func_name not in FUNCTIONS:
-        raise ValueError(f"Unknown func_name '{func_name}'. Available: {list(FUNCTIONS)}")
-    result = minimize(FUNCTIONS[func_name], np.array(x0), method=method)
+    extra_params = extra_params or {}
+    if function not in FUNCTIONS:
+        raise ValueError(f"Unknown function '{function}'. Available: {list(FUNCTIONS)}")
+    result = minimize(FUNCTIONS[function], np.array(initial_guess), method=method, **extra_params)
     return {
         "x": result.x,
         "fun": float(result.fun),
         "success": bool(result.success),
-        "message": str(result.message),
+        "n_iter": int(getattr(result, 'nit', 0)),
     }

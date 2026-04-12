@@ -1,9 +1,8 @@
-def run(values, period, model):
-    import numpy as np
+def run(series, period, model="additive"):
     from statsmodels.tsa.seasonal import seasonal_decompose
-    result = seasonal_decompose(values, model=str(model), period=int(period), extrapolate_trend='freq')
+    result = seasonal_decompose(series, model=str(model), period=int(period), extrapolate_trend='freq')
     return {
-        "trend": np.array(result.trend),
-        "seasonal": np.array(result.seasonal),
-        "residual": np.array(result.resid),
+        "trend": result.trend,
+        "seasonal": result.seasonal,
+        "residual": result.resid,
     }

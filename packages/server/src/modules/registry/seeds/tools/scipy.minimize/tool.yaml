@@ -1,23 +1,26 @@
 name: scipy.minimize
 version: 1
-description: Minimize a scalar function of one or more variables using scipy.optimize.minimize. The objective function is selected by name from the built-in function registry.
+description: Minimize a scalar function of one or more variables.
 category: optimization
-tags: [optimization, minimize, scipy, numpy]
-
 inputs:
-  x0:
+  function:
+    schema: String
+    required: true
+    description: "Name of the objective function from the built-in registry: 'rosenbrock', 'quadratic', 'sphere'."
+  initial_guess:
     schema: NumpyArray
     required: true
     description: Initial guess for the minimizer (1-D array).
   method:
     schema: String
-    required: true
-    description: Optimization method (e.g. 'Nelder-Mead', 'BFGS', 'L-BFGS-B').
-  func_name:
-    schema: String
-    required: true
-    description: "Name of the objective function from the built-in registry. Available: rosenbrock, quadratic, sphere."
-
+    required: false
+    default: "BFGS"
+    description: Optimization method (e.g. 'BFGS', 'Nelder-Mead', 'L-BFGS-B').
+  extra_params:
+    schema: JsonObject
+    required: false
+    default: {}
+    description: Additional keyword arguments passed to the underlying library function.
 outputs:
   x:
     schema: NumpyArray
@@ -28,16 +31,9 @@ outputs:
   success:
     schema: Boolean
     description: Whether the optimizer converged successfully.
-  message:
-    schema: String
-    description: Description of the cause of termination.
-
+  n_iter:
+    schema: Integer
+    description: Number of iterations performed.
 implementation:
   language: python
   entry_point: tool.py:run
-  requires: [numpy, scipy]
-
-metadata:
-  author: plurics-seeds
-  stability: stable
-  cost_class: medium

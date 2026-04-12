@@ -13,16 +13,16 @@ FUNCTIONS = {
 }
 
 
-def run(xdata, ydata, p0, func_name):
+def run(function, x, y, initial_guess=None):
     from scipy.optimize import curve_fit
     import numpy as np
-    if func_name not in FUNCTIONS:
-        raise ValueError(f"Unknown func_name '{func_name}'. Available: {list(FUNCTIONS)}")
-    xdata_arr = np.array(xdata)
-    ydata_arr = np.array(ydata)
-    p0_arr = np.array(p0)
-    popt, pcov = curve_fit(FUNCTIONS[func_name], xdata_arr, ydata_arr, p0=p0_arr)
+    if function not in FUNCTIONS:
+        raise ValueError(f"Unknown function '{function}'. Available: {list(FUNCTIONS)}")
+    x_arr = np.array(x)
+    y_arr = np.array(y)
+    p0 = np.array(initial_guess) if initial_guess is not None else None
+    parameters, covariance = curve_fit(FUNCTIONS[function], x_arr, y_arr, p0=p0)
     return {
-        "popt": popt,
-        "pcov": pcov,
+        "parameters": parameters,
+        "covariance": covariance,
     }
