@@ -24,6 +24,8 @@ export interface SchemaDef {
   source: SchemaSource;
   /** Optional: convert runner-emitted summary payload to a typed ValueSummary. */
   summarizer?: Summarizer;
+  validatorModule?: string;    // relative path from registry module root, e.g. "schemas/validators/ohlc_frame.py"
+  validatorFunction?: string;  // defaults to "validate" if module is set but function is omitted
 }
 
 // ---------- Tool manifests (post-parse, pre-validation) ----------
@@ -57,6 +59,9 @@ export interface ToolManifest {
     createdAt?: string;
     stability?: Stability;
     costClass?: CostClass;
+    isConverter?: boolean;
+    sourceSchema?: string;
+    targetSchema?: string;
   };
 }
 
@@ -132,6 +137,15 @@ export type RegistrationResult =
       version: number | null;
       errors: RegistrationError[];
     };
+
+// ---------- Converter registry ----------
+
+export interface ConverterRecord {
+  sourceSchema: string;
+  targetSchema: string;
+  toolName: string;
+  toolVersion: number;
+}
 
 // ---------- Discovery ----------
 
