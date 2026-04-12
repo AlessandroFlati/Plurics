@@ -160,6 +160,15 @@ export function parseToolManifest(yamlText: string): ToolManifest {
       }
       meta.costClass = c as CostClass;
     }
+    if (md.is_converter === true) {
+      meta.isConverter = true;
+    }
+    if (typeof md.source_schema === 'string') {
+      meta.sourceSchema = md.source_schema;
+    }
+    if (typeof md.target_schema === 'string') {
+      meta.targetSchema = md.target_schema;
+    }
     manifest.metadata = meta;
   }
 

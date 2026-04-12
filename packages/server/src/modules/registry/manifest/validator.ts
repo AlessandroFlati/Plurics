@@ -67,5 +67,34 @@ export function validateToolManifest(
     });
   }
 
+  if (manifest.metadata?.isConverter === true) {
+    const src = manifest.metadata.sourceSchema;
+    const tgt = manifest.metadata.targetSchema;
+    if (!src || !tgt) {
+      errors.push({
+        category: 'manifest_validation',
+        message:
+          'Converter tools must declare metadata.source_schema and metadata.target_schema.',
+      });
+    } else {
+      // source_schema must match the schema of the single input port
+      const inputSchemas = Object.values(manifest.inputs).map((p) => p.schema);
+      if (!inputSchemas.includes(src)) {
+        errors.push({
+          category: 'manifest_validation',
+          message: `metadata.source_schema "${src}" does not match any input port schema (${inputSchemas.join(', ')}).`,
+        });
+      }
+      // target_schema must match the schema of the single output port
+      const outputSchemas = Object.values(manifest.outputs).map((p) => p.schema);
+      if (!outputSchemas.includes(tgt)) {
+        errors.push({
+          category: 'manifest_validation',
+          message: `metadata.target_schema "${tgt}" does not match any output port schema (${outputSchemas.join(', ')}).`,
+        });
+      }
+    }
+  }
+
   return errors;
 }
