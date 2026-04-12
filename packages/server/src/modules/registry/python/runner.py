@@ -41,7 +41,7 @@ import importlib.util
 from pathlib import Path
 
 
-PICKLE_SCHEMAS = {"NumpyArray", "DataFrame"}
+PICKLE_SCHEMAS = {"NumpyArray", "DataFrame", "SymbolicExpr"}
 
 
 def _make_summary(schema_name, value):
@@ -66,6 +66,12 @@ def _make_summary(schema_name, value):
                 "head": value.head(5).to_dict("records"),
                 "stats": value.describe().to_dict(),
             }
+        if schema_name == "SymbolicExpr":
+            try:
+                s = str(value)
+                return s[:200] + '...' if len(s) > 200 else s
+            except Exception:
+                return '<unprintable SymbolicExpr>'
     except Exception:
         return None
     return None

@@ -112,6 +112,14 @@ export const BUILTIN_SCHEMAS: readonly SchemaDef[] = [
       }
     },
   },
+  {
+    name: 'SymbolicExpr',
+    kind: 'structured',
+    pythonRepresentation: 'sympy.Expr',
+    encoding: 'pickle_b64',
+    description: 'A symbolic mathematical expression (sympy.Expr). Encoded as pickle_b64.',
+    source: 'builtin',
+  },
 ];
 
 /** Schemas whose values move across the stdio boundary as pickle+base64. */
