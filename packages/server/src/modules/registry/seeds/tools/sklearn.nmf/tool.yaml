@@ -1,0 +1,36 @@
+name: sklearn.nmf
+version: 1
+description: Non-negative Matrix Factorization — decompose a non-negative matrix into W and H factors.
+category: decomposition
+tags: [nmf, matrix-factorization, scikit-learn, numpy]
+
+inputs:
+  X:
+    schema: NumpyArray
+    required: true
+    description: Non-negative input matrix (n_samples x n_features).
+  n_components:
+    schema: Integer
+    required: true
+    description: Number of components (rank of factorization).
+
+outputs:
+  W:
+    schema: NumpyArray
+    description: Activation matrix (n_samples x n_components).
+  H:
+    schema: NumpyArray
+    description: Component matrix (n_components x n_features).
+  reconstruction_error:
+    schema: Float
+    description: Frobenius norm of reconstruction error.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [numpy, scikit-learn]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: medium

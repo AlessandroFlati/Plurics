@@ -1,0 +1,33 @@
+name: sklearn.ica
+version: 1
+description: Independent Component Analysis — separate mixed signals into independent components.
+category: decomposition
+tags: [ica, independent-components, scikit-learn, numpy]
+
+inputs:
+  X:
+    schema: NumpyArray
+    required: true
+    description: Input data matrix (n_samples x n_features).
+  n_components:
+    schema: Integer
+    required: true
+    description: Number of independent components to extract.
+
+outputs:
+  components:
+    schema: NumpyArray
+    description: Unmixing matrix rows (n_components x n_features).
+  transformed:
+    schema: NumpyArray
+    description: Independent component activations (n_samples x n_components).
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [numpy, scikit-learn]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: medium

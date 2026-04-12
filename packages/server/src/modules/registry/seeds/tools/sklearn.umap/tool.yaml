@@ -1,0 +1,34 @@
+name: sklearn.umap
+version: 1
+description: UMAP dimensionality reduction (uses umap-learn, sklearn-compatible API).
+category: decomposition
+tags: [umap, dimensionality-reduction, manifold, umap-learn, numpy]
+
+inputs:
+  X:
+    schema: NumpyArray
+    required: true
+    description: Input data matrix (n_samples x n_features).
+  n_components:
+    schema: Integer
+    required: true
+    description: Embedding dimensionality.
+  n_neighbors:
+    schema: Integer
+    required: true
+    description: Size of local neighborhood for manifold approximation.
+
+outputs:
+  embedding:
+    schema: NumpyArray
+    description: Low-dimensional embedding (n_samples x n_components).
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [numpy, umap-learn]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: slow

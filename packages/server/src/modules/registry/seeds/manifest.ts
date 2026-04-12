@@ -40,4 +40,9 @@ export const SEED_TOOLS: SeedToolDef[] = [
   { name: 'sklearn.ridge',               relPath: './tools/sklearn.ridge/tool.yaml' },
   { name: 'sklearn.lasso',               relPath: './tools/sklearn.lasso/tool.yaml' },
   { name: 'statsmodels.glm',             relPath: './tools/statsmodels.glm/tool.yaml' },
+  { name: 'sklearn.pca',  relPath: './tools/sklearn.pca/tool.yaml' },
+  { name: 'sklearn.ica',  relPath: './tools/sklearn.ica/tool.yaml' },
+  { name: 'sklearn.nmf',  relPath: './tools/sklearn.nmf/tool.yaml' },
+  { name: 'sklearn.tsne', relPath: './tools/sklearn.tsne/tool.yaml' },
+  { name: 'sklearn.umap', relPath: './tools/sklearn.umap/tool.yaml' },
 ];

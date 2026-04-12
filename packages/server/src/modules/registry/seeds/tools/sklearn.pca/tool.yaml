@@ -1,0 +1,36 @@
+name: sklearn.pca
+version: 1
+description: Principal Component Analysis — project NumpyArray data onto n_components principal axes.
+category: decomposition
+tags: [pca, dimensionality-reduction, scikit-learn, numpy]
+
+inputs:
+  X:
+    schema: NumpyArray
+    required: true
+    description: Input data matrix (n_samples x n_features).
+  n_components:
+    schema: Integer
+    required: true
+    description: Number of principal components to keep.
+
+outputs:
+  components:
+    schema: NumpyArray
+    description: Principal components (n_components x n_features).
+  explained_variance:
+    schema: NumpyArray
+    description: Variance explained by each component.
+  transformed:
+    schema: NumpyArray
+    description: Data projected onto principal components (n_samples x n_components).
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [numpy, scikit-learn]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: medium

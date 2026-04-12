@@ -1,0 +1,34 @@
+name: sklearn.tsne
+version: 1
+description: t-SNE dimensionality reduction for visualization.
+category: decomposition
+tags: [tsne, dimensionality-reduction, visualization, scikit-learn, numpy]
+
+inputs:
+  X:
+    schema: NumpyArray
+    required: true
+    description: Input data matrix (n_samples x n_features).
+  n_components:
+    schema: Integer
+    required: true
+    description: Embedding dimensionality (usually 2 or 3).
+  perplexity:
+    schema: Float
+    required: true
+    description: t-SNE perplexity parameter (typically 5-50).
+
+outputs:
+  embedding:
+    schema: NumpyArray
+    description: Low-dimensional embedding (n_samples x n_components).
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [numpy, scikit-learn]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: slow
