@@ -16,6 +16,8 @@ import type {
   InvocationResult,
   ListFilters,
   ConverterRecord,
+  CategorySummary,
+  TestRunResult,
 } from './types.js';
 import { RegistryLayout, hashToolDirectory } from './storage/filesystem.js';
 import { RegistryDb } from './storage/db.js';
@@ -380,6 +382,70 @@ export class RegistryClient {
 
   findConverter(source: string, target: string): ConverterRecord | null {
     return this.db.findConverter(source, target);
+  }
+
+  listTools(filters?: ListFilters): ToolRecord[] {
+    return this.db.listTools(filters ?? {}).map((r) => this.withDirectory(r));
+  }
+
+  getTool(name: string, version: number): ToolRecord | null {
+    const record = this.db.getTool(name, version);
+    return record ? this.withDirectory(record) : null;
+  }
+
+  getToolsByName(name: string): ToolRecord[] {
+    return this.db.getToolsByName(name).map((r) => this.withDirectory(r));
+  }
+
+  listConverters(): ConverterRecord[] {
+    return this.db.listConverters();
+  }
+
+  getConverter(src: string, tgt: string): ConverterRecord | null {
+    return this.db.getConverter(src, tgt);
+  }
+
+  searchTools(query: string): ToolRecord[] {
+    return this.db.searchTools(query).map((r) => this.withDirectory(r));
+  }
+
+  listCategories(): CategorySummary[] {
+    return this.db.listCategories();
+  }
+
+  async runTests(name: string, version: number): Promise<TestRunResult> {
+    const record = this.db.getTool(name, version);
+    if (!record) throw new Error(`tool not found: ${name} v${version}`);
+    const fullRecord = this.withDirectory(record);
+    const testsPath = path.join(fullRecord.directory, 'tests.py');
+    if (!fs.existsSync(testsPath)) {
+      return { toolName: name, version, passed: 0, failed: 0, errors: 0, durationMs: 0, stdout: '', stderr: 'tests.py not found' };
+    }
+    const python = this.resolvedPythonPath;
+    if (!python) {
+      throw new Error('python_unavailable');
+    }
+    const start = Date.now();
+    const result = spawnSync(python, ['-m', 'pytest', testsPath, '--tb=short', '-q'], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      cwd: fullRecord.directory,
+    });
+    const durationMs = Date.now() - start;
+    const stdout = result.stdout ?? '';
+    const passedMatch = stdout.match(/(\d+) passed/);
+    const failedMatch = stdout.match(/(\d+) failed/);
+    const errorsMatch = stdout.match(/(\d+) error/);
+    return {
+      toolName: name,
+      version,
+      passed: passedMatch ? parseInt(passedMatch[1], 10) : 0,
+      failed: failedMatch ? parseInt(failedMatch[1], 10) : 0,
+      errors: errorsMatch ? parseInt(errorsMatch[1], 10) : 0,
+      durationMs,
+      stdout: result.stdout ?? '',
+      stderr: result.stderr ?? '',
+    };
   }
 
   private withDirectory(record: ToolRecord): ToolRecord {

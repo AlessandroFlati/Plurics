@@ -10,6 +10,7 @@ import type {
   CostClass,
   ConverterRecord,
   ToolManifest,
+  CategorySummary,
 } from '../types.js';
 
 const EXPECTED_SCHEMA_VERSION = 2;
@@ -407,6 +408,42 @@ export class RegistryDb {
       status: row.status as ToolStatus,
       directory: '', // filled in by the client layer which knows the layout
     };
+  }
+
+  getToolsByName(name: string): ToolRecord[] {
+    const db = this.raw();
+    const rows = db
+      .prepare('SELECT * FROM tools WHERE name = ? ORDER BY version DESC')
+      .all(name) as ToolRow[];
+    return rows.map((r) => this.hydrateTool(r));
+  }
+
+  searchTools(query: string): ToolRecord[] {
+    const q = `%${query}%`;
+    const ids = (this.raw()
+      .prepare('SELECT DISTINCT id FROM tools WHERE name LIKE ? OR description LIKE ? OR tags_json LIKE ?')
+      .all(q, q, q) as Array<{ id: number }>).map((r) => r.id);
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = this.raw()
+      .prepare(`SELECT * FROM tools WHERE id IN (${placeholders}) ORDER BY name, version DESC`)
+      .all(...ids) as ToolRow[];
+    return rows.map((r) => this.hydrateTool(r));
+  }
+
+  listCategories(): CategorySummary[] {
+    return (this.raw()
+      .prepare(`SELECT COALESCE(category, 'Uncategorized') as name, COUNT(DISTINCT name) as toolCount, COUNT(*) as versions
+                FROM tools WHERE status = 'active' GROUP BY category ORDER BY name`)
+      .all() as Array<{ name: string; toolCount: number; versions: number }>);
+  }
+
+  getConverter(sourceSchema: string, targetSchema: string): ConverterRecord | null {
+    const row = this.raw()
+      .prepare('SELECT source_schema, target_schema, tool_name, tool_version FROM converters WHERE source_schema = ? AND target_schema = ?')
+      .get(sourceSchema, targetSchema) as { source_schema: string; target_schema: string; tool_name: string; tool_version: number } | undefined;
+    if (!row) return null;
+    return { sourceSchema: row.source_schema, targetSchema: row.target_schema, toolName: row.tool_name, toolVersion: row.tool_version };
   }
 
   // ---------- Converters ----------

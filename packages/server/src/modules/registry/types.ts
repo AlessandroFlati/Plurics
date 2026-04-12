@@ -199,6 +199,27 @@ export type InvocationResult =
       metrics: { durationMs: number };
     };
 
+// ---------- Category summary ----------
+
+export interface CategorySummary {
+  name: string;         // null category stored as 'Uncategorized'
+  toolCount: number;
+  versions: number;
+}
+
+// ---------- Test run result ----------
+
+export interface TestRunResult {
+  toolName: string;
+  version: number;
+  passed: number;
+  failed: number;
+  errors: number;
+  durationMs: number;
+  stdout: string;
+  stderr: string;
+}
+
 // ---------- Client options ----------
 
 export interface RegistryClientOptions {
