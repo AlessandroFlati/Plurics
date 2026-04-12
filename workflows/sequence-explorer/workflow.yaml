@@ -69,9 +69,9 @@ nodes:
   sequence_fetch:
     preset: sequence-explorer/sequence-fetcher
     kind: reasoning
-    backend: process
-    command: ["py", ".plurics/tools/sequence_fetcher.py"]
-    working_dir: "{{WORKSPACE}}"
+    backend: claude
+    model: claude-haiku-3-5
+    toolset: []
     depends_on: []
     timeout_seconds: 120
 
@@ -82,8 +82,9 @@ nodes:
   profiler:
     preset: sequence-explorer/profiler
     kind: reasoning
-    backend: claude-code
-    model: sonnet
+    backend: claude
+    model: claude-3-5-sonnet-20241022
+    toolset: []
     depends_on: [sequence_fetch]
 
 # ===========================================================================
@@ -93,8 +94,9 @@ nodes:
   conjecturer:
     preset: sequence-explorer/conjecturer
     kind: reasoning
-    backend: claude-code
-    model: opus
+    backend: claude
+    model: claude-3-5-sonnet-20241022
+    toolset: []
     depends_on: [profiler]
     max_invocations: 5                 # max_rounds
     branch:
@@ -107,8 +109,9 @@ nodes:
   formalizer:
     preset: sequence-explorer/formalizer
     kind: reasoning
-    backend: claude-code
-    model: sonnet
+    backend: claude
+    model: claude-3-5-sonnet-20241022
+    toolset: []
     depends_on: [conjecturer]
     max_invocations: 50                # Upper bound for all rounds combined
 
@@ -128,9 +131,9 @@ nodes:
   verifier:
     preset: sequence-explorer/verifier
     kind: reasoning
-    backend: process
-    command: ["py", ".plurics/tools/verifier.py"]
-    working_dir: "{{WORKSPACE}}"
+    backend: claude
+    model: claude-haiku-3-5
+    toolset: []
     depends_on: [quick_filter]
     max_invocations: 50
     timeout_seconds: 60
@@ -138,9 +141,9 @@ nodes:
   cross_checker:
     preset: sequence-explorer/cross-checker
     kind: reasoning
-    backend: process
-    command: ["py", ".plurics/tools/cross_checker.py"]
-    working_dir: "{{WORKSPACE}}"
+    backend: claude
+    model: claude-haiku-3-5
+    toolset: []
     depends_on: [verifier]
     max_invocations: 50
     timeout_seconds: 60
@@ -148,8 +151,9 @@ nodes:
   critic:
     preset: sequence-explorer/critic
     kind: reasoning
-    backend: claude-code
-    model: opus
+    backend: claude
+    model: claude-3-5-sonnet-20241022
+    toolset: []
     depends_on: [cross_checker]
     max_invocations: 50
 
@@ -160,8 +164,9 @@ nodes:
   selector:
     preset: sequence-explorer/selector
     kind: reasoning
-    backend: claude-code
-    model: opus
+    backend: claude
+    model: claude-3-5-sonnet-20241022
+    toolset: []
     depends_on_all: [critic]           # Wait for all conjectures in current round
     max_invocations: 5                 # Once per round
     branch:
@@ -173,6 +178,7 @@ nodes:
   reporter:
     preset: sequence-explorer/reporter
     kind: reasoning
-    backend: claude-code
-    model: opus
+    backend: claude
+    model: claude-3-5-sonnet-20241022
+    toolset: []
     depends_on: [selector]
