@@ -13,4 +13,63 @@ export type ServerMessage =
   | { type: 'workflow:completed'; runId: string; summary: { total_nodes: number; completed: number; failed: number; skipped: number; duration_seconds: number } }
   | { type: 'workflow:paused'; runId: string }
   | { type: 'workflow:resumed'; runId: string }
-  | { type: 'workflow:finding'; runId: string; hypothesisId: string; content: string };
+  | { type: 'workflow:finding'; runId: string; hypothesisId: string; content: string }
+  | {
+      type: 'node:state_changed';
+      timestamp: string;
+      runId: string;
+      payload: {
+        nodeName: string;
+        scope: string | null;
+        previousState: string;
+        newState: string;
+        attempt: number;
+        details?: { error?: string; dispatchHandle?: string };
+      };
+    }
+  | {
+      type: 'workflow:state_changed';
+      timestamp: string;
+      runId: string;
+      payload: {
+        status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted' | 'interrupted';
+        previousStatus: string;
+      };
+    }
+  | {
+      type: 'signal:received';
+      timestamp: string;
+      runId: string;
+      payload: {
+        signalId: string;
+        nodeName: string;
+        scope: string | null;
+        status: 'success' | 'failure' | 'partial';
+        decisionSummary?: string;
+        outputCount: number;
+      };
+    }
+  | {
+      type: 'tool:invoked';
+      timestamp: string;
+      runId: string;
+      payload: {
+        toolName: string;
+        toolVersion: number;
+        invokingNode: string;
+        scope: string | null;
+        success: boolean;
+        durationMs: number;
+      };
+    }
+  | {
+      type: 'registry:tool_registered';
+      timestamp: string;
+      payload: {
+        toolName: string;
+        toolVersion: number;
+        category: string | null;
+        registeredBy: 'seed' | 'human' | 'agent';
+        runId?: string;
+      };
+    };

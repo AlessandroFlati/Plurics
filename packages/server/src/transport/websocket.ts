@@ -10,7 +10,7 @@ import { DagExecutor } from '../modules/workflow/dag-executor.js';
 import { parseWorkflow } from '../modules/workflow/yaml-parser.js';
 import { validateInputManifest } from '../modules/workflow/input-validator.js';
 
-const activeExecutors = new Map<string, DagExecutor>();
+export const activeExecutors = new Map<string, DagExecutor>();
 
 export function createWebSocketServer(
   server: http.Server,
@@ -84,16 +84,26 @@ async function handleMessage(
 
       executor.setStateChangeHandler((runId, node, fromState, toState, event, terminalId) => {
         sendMessage(ws, { type: 'workflow:node-update', runId, node, fromState, toState, event, terminalId });
+        sendMessage(ws, { type: 'node:state_changed', timestamp: new Date().toISOString(), runId, payload: { nodeName: node, scope: null, previousState: fromState, newState: toState, attempt: 1 } });
       });
 
       executor.setCompleteHandler((runId, summary) => {
         workflowRepo.updateRunStatus(runId, summary.failed > 0 ? 'failed' : 'completed', summary.completed, summary.failed);
         sendMessage(ws, { type: 'workflow:completed', runId, summary });
+        sendMessage(ws, { type: 'workflow:state_changed', timestamp: new Date().toISOString(), runId, payload: { status: summary.failed > 0 ? 'failed' : 'completed', previousStatus: 'running' } });
         activeExecutors.delete(runId);
       });
 
       executor.setFindingHandler((runId, hypothesisId, content) => {
         sendMessage(ws, { type: 'workflow:finding', runId, hypothesisId, content });
+      });
+
+      executor.setSignalReceivedHandler((runId, signalId, nodeName, scope, status, decisionSummary, outputCount) => {
+        sendMessage(ws, { type: 'signal:received', timestamp: new Date().toISOString(), runId, payload: { signalId, nodeName, scope, status, decisionSummary, outputCount } });
+      });
+
+      executor.setToolInvokedHandler((runId, toolName, toolVersion, invokingNode, scope, success, durationMs) => {
+        sendMessage(ws, { type: 'tool:invoked', timestamp: new Date().toISOString(), runId, payload: { toolName, toolVersion, invokingNode, scope, success, durationMs } });
       });
 
       activeExecutors.set(executor.runId, executor);
@@ -137,6 +147,7 @@ async function handleMessage(
       }
       executor.pause();
       sendMessage(ws, { type: 'workflow:paused', runId: msg.runId });
+      sendMessage(ws, { type: 'workflow:state_changed', timestamp: new Date().toISOString(), runId: msg.runId, payload: { status: 'paused', previousStatus: 'running' } });
       break;
     }
 
@@ -189,16 +200,26 @@ async function handleMessage(
 
       executor.setStateChangeHandler((runId, node, fromState, toState, event, terminalId) => {
         sendMessage(ws, { type: 'workflow:node-update', runId, node, fromState, toState, event, terminalId });
+        sendMessage(ws, { type: 'node:state_changed', timestamp: new Date().toISOString(), runId, payload: { nodeName: node, scope: null, previousState: fromState, newState: toState, attempt: 1 } });
       });
 
       executor.setCompleteHandler((runId, summary) => {
         workflowRepo.updateRunStatus(runId, summary.failed > 0 ? 'failed' : 'completed', summary.completed, summary.failed);
         sendMessage(ws, { type: 'workflow:completed', runId, summary });
+        sendMessage(ws, { type: 'workflow:state_changed', timestamp: new Date().toISOString(), runId, payload: { status: summary.failed > 0 ? 'failed' : 'completed', previousStatus: 'running' } });
         activeExecutors.delete(runId);
       });
 
       executor.setFindingHandler((runId, hypothesisId, content) => {
         sendMessage(ws, { type: 'workflow:finding', runId, hypothesisId, content });
+      });
+
+      executor.setSignalReceivedHandler((runId, signalId, nodeName, scope, status, decisionSummary, outputCount) => {
+        sendMessage(ws, { type: 'signal:received', timestamp: new Date().toISOString(), runId, payload: { signalId, nodeName, scope, status, decisionSummary, outputCount } });
+      });
+
+      executor.setToolInvokedHandler((runId, toolName, toolVersion, invokingNode, scope, success, durationMs) => {
+        sendMessage(ws, { type: 'tool:invoked', timestamp: new Date().toISOString(), runId, payload: { toolName, toolVersion, invokingNode, scope, success, durationMs } });
       });
 
       try {

@@ -61,6 +61,24 @@ type StateChangeCallback = (
 ) => void;
 type WorkflowCompleteCallback = (runId: string, summary: WorkflowSummary) => void;
 type FindingCallback = (runId: string, hypothesisId: string, content: string) => void;
+type SignalReceivedCallback = (
+  runId: string,
+  signalId: string,
+  nodeName: string,
+  scope: string | null,
+  status: 'success' | 'failure' | 'partial',
+  decisionSummary: string | undefined,
+  outputCount: number,
+) => void;
+type ToolInvokedCallback = (
+  runId: string,
+  toolName: string,
+  toolVersion: number,
+  invokingNode: string,
+  scope: string | null,
+  success: boolean,
+  durationMs: number,
+) => void;
 
 export interface WorkflowSummary {
   total_nodes: number;
@@ -88,6 +106,8 @@ export class DagExecutor {
   private onStateChange: StateChangeCallback | null = null;
   private onComplete: WorkflowCompleteCallback | null = null;
   private onFinding: FindingCallback | null = null;
+  private onSignalReceived: SignalReceivedCallback | null = null;
+  private onToolInvoked: ToolInvokedCallback | null = null;
   private activeSubDags: number = 0;
   private paused: boolean = false;
   private readonly pool = new EvolutionaryPool();
@@ -127,6 +147,14 @@ export class DagExecutor {
 
   setFindingHandler(handler: FindingCallback): void {
     this.onFinding = handler;
+  }
+
+  setSignalReceivedHandler(handler: SignalReceivedCallback): void {
+    this.onSignalReceived = handler;
+  }
+
+  setToolInvokedHandler(handler: ToolInvokedCallback): void {
+    this.onToolInvoked = handler;
   }
 
   getNodes(): Map<string, DagNode> {
@@ -1254,6 +1282,21 @@ export class DagExecutor {
       }
     } catch { /* validation itself may fail if files not found via symlink */ }
 
+    // Emit signal:received callback
+    if (this.onSignalReceived) {
+      const sigStatus = (signal.status === 'success' || signal.status === 'branch') ? 'success'
+        : signal.status === 'failure' ? 'failure' : 'partial';
+      this.onSignalReceived(
+        this.runId,
+        signal.signal_id,
+        node.name,
+        node.scope ?? null,
+        sigStatus as 'success' | 'failure' | 'partial',
+        signal.decision?.reason ?? undefined,
+        signal.outputs.length,
+      );
+    }
+
     switch (signal.status) {
       case 'success':
       case 'branch':
@@ -1880,6 +1923,21 @@ export class DagExecutor {
         },
         metrics: { durationMs: 0 },
       };
+    }
+
+    // Emit tool:invoked callback
+    if (this.onToolInvoked) {
+      const toolRecord = this.registryClient.listTools({ statusIn: ['active', 'deprecated'] }).find(t => t.name === toolName);
+      const toolVersion = toolRecord?.version ?? 0;
+      this.onToolInvoked(
+        this.runId,
+        toolName,
+        toolVersion,
+        nodeName,
+        node.scope ?? null,
+        invocationResult.success,
+        invocationResult.metrics.durationMs,
+      );
     }
 
     // Phase 2: flush new handles to disk after each tool node
