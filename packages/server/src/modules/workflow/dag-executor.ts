@@ -16,7 +16,24 @@ import { validateSignalOutputs } from './signal-validator.js';
 import { generatePurpose } from './purpose-templates.js';
 import { randomHex, writeJsonAtomic, normalizeAgentPath } from './utils.js';
 import { resolvePresetContent, resolvePlaceholders } from './preset-resolver.js';
-import type { WorkflowPlugin } from './sdk.js';
+import type {
+  WorkflowPlugin,
+  PlatformServices,
+  WorkflowStartContext,
+  WorkflowResumeContext,
+  WorkflowCompleteContext,
+  SignalContext,
+  SignalDecision,
+  HandoffFile,
+  EvaluationContext,
+  ReadinessContext,
+  RoutingContext,
+  RoutingDecision,
+  PurposeContext,
+  PurposeEnrichment,
+  EvolutionaryContextRequest,
+  EvolutionaryContextResult,
+} from './sdk.js';
 import { EvolutionaryPool } from './evolutionary-pool.js';
 import { ValueStore } from '../registry/execution/value-store.js';
 import type { AgentRegistry } from '../agents/agent-registry.js';
@@ -31,6 +48,10 @@ import { runReasoningNode } from '../agents/reasoning-runtime.js';
 import { resolveToolset } from '../agents/toolset-resolver.js';
 import { checkWorkflow } from './type-checker.js';
 import type { ResolvedWorkflowPlan } from './type-checker.js';
+
+function applyVariables(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{([A-Z0-9_]+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`);
+}
 
 type StateChangeCallback = (
   runId: string, node: string, fromState: NodeState, toState: NodeState, event: string, terminalId?: string
@@ -122,6 +143,63 @@ export class DagExecutor {
     return this.pool;
   }
 
+  private buildPlatformServices(): PlatformServices {
+    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
+    const logPath = path.join(runDir, 'plugin-log.jsonl');
+    const writeLog = (level: string, msg: string, meta?: Record<string, unknown>) => {
+      const entry = JSON.stringify({ ts: new Date().toISOString(), level, msg, ...meta }) + '\n';
+      fs.appendFile(logPath, entry).catch(() => {});
+      if (level === 'error') console.error(`[plugin] ${msg}`, meta ?? '');
+      else if (level === 'warn') console.warn(`[plugin] ${msg}`, meta ?? '');
+      else console.log(`[plugin] ${msg}`, meta ?? '');
+    };
+    return {
+      registryClient: this.registryClient,
+      valueStore: this.valueStore,
+      logger: {
+        info: (msg, meta) => writeLog('info', msg, meta),
+        warn: (msg, meta) => writeLog('warn', msg, meta),
+        error: (msg, meta) => writeLog('error', msg, meta),
+      },
+      runDirectory: runDir,
+    };
+  }
+
+  private nodePluginFail(node: DagNode, hookName: string, err: unknown): void {
+    const message = `${hookName}_error: ${err instanceof Error ? err.message : String(err)}`;
+    this.transition(node.name, 'failed');
+    if (!node.signal) node.signal = {} as SignalFile;
+    node.signal.status = 'failure';
+    node.signal.error = { category: 'plugin_error', message, recoverable: false };
+  }
+
+  private buildUpstreamHandoffs(node: DagNode): Record<string, unknown> {
+    const handoffs: Record<string, unknown> = {};
+    for (const dep of node.dependsOn ?? []) {
+      const depNode = this.nodes.get(dep);
+      if (depNode?.signal?.outputs) {
+        handoffs[dep] = depNode.signal.outputs;
+      }
+    }
+    return handoffs;
+  }
+
+  private async writeHandoffs(handoffs: HandoffFile[], node: DagNode): Promise<void> {
+    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
+    for (const hf of handoffs) {
+      const target = path.join(runDir, hf.path);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, hf.content, 'utf-8');
+    }
+  }
+
+  private async handleBranchDecisionByTarget(node: DagNode, target: string, state: Record<string, unknown>): Promise<void> {
+    const targetNode = this.nodes.get(target);
+    if (!targetNode) return;
+    node.signal!.decision = { goto: target, reason: 'plugin-routing', payload: state ?? null };
+    await this.handleBranchDecision(node);
+  }
+
   async start(inputManifest?: import('./input-types.js').InputManifest | null): Promise<void> {
     this.startedAt = Date.now();
     this.bootstrap.setCwd(this.workspacePath);
@@ -171,7 +249,21 @@ export class DagExecutor {
     }
 
     // Plugin hook: domain-specific initialization
-    await this.plugin?.onWorkflowStart?.(this.workspacePath, this.workflowConfig.config);
+    if (this.plugin?.onWorkflowStart) {
+      const ctx: WorkflowStartContext = {
+        runId: this.runId,
+        workflowName: (this.workflowConfig as any).name ?? (this.workflowConfig as any).workflow ?? 'unknown',
+        workflowVersion: (this.workflowConfig as any).version ?? '0.0.0',
+        workflowConfig: this.workflowConfig.config,
+        runDirectory: path.join(this.workspacePath, '.plurics', 'runs', this.runId),
+        platform: this.buildPlatformServices(),
+      };
+      try {
+        await this.plugin.onWorkflowStart(ctx);
+      } catch (err) {
+        throw new Error(`[plugin] onWorkflowStart failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     this.valueStore = new ValueStore(this.runId, this.workspacePath);
     // No-op on first run; loads existing handles on resume (called explicitly there).
@@ -300,13 +392,39 @@ export class DagExecutor {
     // Plugin resume hook
     const completedNodes = [...this.nodes.values()]
       .filter(n => n.state === 'completed')
-      .map(n => ({ name: n.name, scope: n.scope, signal: n.signal }));
+      .map(n => n.name);
+    const pendingNodeNames = [...this.nodes.values()]
+      .filter(n => n.state === 'pending')
+      .map(n => n.name);
 
     if (this.plugin?.onWorkflowResume) {
-      await this.plugin.onWorkflowResume(this.workspacePath, this.workflowConfig.config, completedNodes);
+      const resumeCtx: WorkflowResumeContext = {
+        runId: this.runId,
+        workflowName: (this.workflowConfig as any).name ?? (this.workflowConfig as any).workflow ?? 'unknown',
+        workflowVersion: (this.workflowConfig as any).version ?? '0.0.0',
+        workflowConfig: this.workflowConfig.config,
+        runDirectory: path.join(this.workspacePath, '.plurics', 'runs', this.runId),
+        platform: this.buildPlatformServices(),
+        snapshotTimestamp: new Date().toISOString(),
+        pendingNodes: pendingNodeNames,
+        completedNodes,
+      };
+      try {
+        await this.plugin.onWorkflowResume(resumeCtx);
+      } catch (err) {
+        throw new Error(`[plugin] onWorkflowResume failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } else if (this.plugin?.onWorkflowStart) {
       // Fallback: re-run onWorkflowStart (plugin may create directories that already exist)
-      await this.plugin.onWorkflowStart(this.workspacePath, this.workflowConfig.config);
+      const ctx: WorkflowStartContext = {
+        runId: this.runId,
+        workflowName: (this.workflowConfig as any).name ?? (this.workflowConfig as any).workflow ?? 'unknown',
+        workflowVersion: (this.workflowConfig as any).version ?? '0.0.0',
+        workflowConfig: this.workflowConfig.config,
+        runDirectory: path.join(this.workspacePath, '.plurics', 'runs', this.runId),
+        platform: this.buildPlatformServices(),
+      };
+      await this.plugin.onWorkflowStart(ctx);
     }
 
     // Start signal watcher, pre-populated with known signal IDs
@@ -470,16 +588,79 @@ export class DagExecutor {
   }
 
   private evaluateReadyNodes(): void {
+    // If plugin has async onEvaluateReadiness, run async variant
+    if (this.plugin?.onEvaluateReadiness) {
+      void this.evaluateReadyNodesAsync();
+      return;
+    }
     for (const [name, node] of this.nodes) {
       if (node.state !== 'pending') continue;
 
-      // Plugin hook: custom readiness evaluation
+      // Check depends_on_all: wait for all scoped instances of named nodes to terminate
+      const baseName = node.scope && name.endsWith(`.${node.scope}`)
+        ? name.slice(0, -(node.scope.length + 1))
+        : name;
+      const nodeDef = this.workflowConfig.nodes[baseName] ?? this.workflowConfig.nodes[name];
+      if (nodeDef?.depends_on_all) {
+        if (this.evaluateDependsOnAll(name, nodeDef.depends_on_all)) {
+          this.transition(name, 'deps_met');
+        }
+        continue;
+      }
+
+      const depsFailed = node.dependsOn.some(depName => {
+        const dep = this.nodes.get(depName);
+        return dep && (dep.state === 'failed' || dep.state === 'skipped');
+      });
+
+      if (depsFailed) {
+        this.transition(name, 'upstream_failed');
+        continue;
+      }
+
+      const depsReady = node.dependsOn.every(depName => {
+        const dep = this.nodes.get(depName);
+        return dep && dep.state === 'completed';
+      });
+
+      if (depsReady) {
+        this.transition(name, 'deps_met');
+      }
+    }
+  }
+
+  private async evaluateReadyNodesAsync(): Promise<void> {
+    for (const [name, node] of this.nodes) {
+      if (node.state !== 'pending') continue;
+
       if (this.plugin?.onEvaluateReadiness) {
-        const nodeStates = new Map<string, { name: string; state: NodeState; scope: string | null }>();
-        for (const [n, nd] of this.nodes) nodeStates.set(n, { name: nd.name, state: nd.state, scope: nd.scope });
-        const pluginResult = this.plugin.onEvaluateReadiness(name, nodeStates);
-        if (pluginResult === true) { this.transition(name, 'deps_met'); continue; }
-        if (pluginResult === false) continue;
+        const readyCtx: ReadinessContext = {
+          runId: this.runId,
+          nodeName: name,
+          scope: node.scope,
+          dependenciesCompleted: (node.dependsOn ?? []).filter(d => {
+            const dn = this.nodes.get(d);
+            return dn?.state === 'completed';
+          }),
+          platform: this.buildPlatformServices(),
+        };
+        let decision;
+        try {
+          decision = await this.plugin.onEvaluateReadiness(readyCtx);
+        } catch (err) {
+          const ps = this.buildPlatformServices();
+          ps.logger.warn('onEvaluateReadiness hook threw; node stays pending', { error: String(err), node: name });
+          continue;
+        }
+        if (decision.ready) {
+          this.transition(name, 'deps_met');
+          continue;
+        } else {
+          if (decision.retryAfter) {
+            setTimeout(() => this.evaluateReadyNodes(), decision.retryAfter * 1000);
+          }
+          continue;
+        }
       }
 
       // Check depends_on_all: wait for all scoped instances of named nodes to terminate
@@ -513,6 +694,7 @@ export class DagExecutor {
         this.transition(name, 'deps_met');
       }
     }
+    await this.scheduleReadyNodes();
   }
 
   private evaluateDependsOnAll(nodeName: string, depNames: string[]): boolean {
@@ -648,17 +830,59 @@ export class DagExecutor {
     // Generate base purpose (generic: preset + shared context + signal protocol)
     let purpose = generatePurpose(node, this.workflowConfig, presetContent);
 
-    // Plugin hook: domain-specific purpose enrichment
+    // Plugin hooks: evolutionary context then purpose enrichment
+    const upstreamHandoffs = this.buildUpstreamHandoffs(node);
+
+    // T13: onEvolutionaryContext — inject pool context before purpose generation
+    {
+      const baseName2 = node.scope && node.name.endsWith(`.${node.scope}`)
+        ? node.name.slice(0, -(node.scope.length + 1))
+        : node.name;
+      const nodeDef2 = this.workflowConfig.nodes[baseName2] ?? this.workflowConfig.nodes[node.name];
+      if (nodeDef2?.evolutionary_role && this.plugin?.onEvolutionaryContext) {
+        const evoCtx: EvolutionaryContextRequest = {
+          runId: this.runId,
+          nodeName: node.name,
+          role: nodeDef2.evolutionary_role as 'generator' | 'evaluator' | 'selector',
+          scope: node.scope,
+          poolSnapshot: this.pool.snapshot(),
+          platform: this.buildPlatformServices(),
+        };
+        let evoResult: EvolutionaryContextResult;
+        try {
+          evoResult = await this.plugin.onEvolutionaryContext(evoCtx);
+        } catch (err) {
+          this.nodePluginFail(node, 'onEvolutionaryContext', err);
+          throw new Error(`plugin_purpose_error (evolutionary): ${err}`);
+        }
+        upstreamHandoffs['__evolutionary'] = evoResult;
+      }
+    }
+
     if (this.plugin?.onPurposeGenerate) {
-      purpose = await this.plugin.onPurposeGenerate(node.name, purpose, {
+      const purposeCtx: PurposeContext = {
+        runId: this.runId,
+        nodeName: node.name,
         scope: node.scope,
-        retryCount: node.retryCount,
-        previousError: node.signal?.error ?? null,
-        workspacePath: this.workspacePath,
-        config: this.workflowConfig.config,
-        pool: this.pool,
-        round: node.invocationCount + 1,
-      });
+        basePreset: purpose,
+        upstreamHandoffs,
+        attemptNumber: node.retryCount + 1,
+        platform: this.buildPlatformServices(),
+      };
+      let enrichment: PurposeEnrichment;
+      try {
+        enrichment = await this.plugin.onPurposeGenerate(purposeCtx);
+      } catch (err) {
+        this.nodePluginFail(node, 'onPurposeGenerate', err);
+        throw new Error(`plugin_purpose_error: ${err}`);
+      }
+      if (enrichment.replace) {
+        purpose = enrichment.replace;
+      } else {
+        if (enrichment.prepend) purpose = enrichment.prepend + '\n' + purpose;
+        if (enrichment.append) purpose = purpose + '\n' + enrichment.append;
+        if (enrichment.variables) purpose = applyVariables(purpose, enrichment.variables);
+      }
     }
 
     // Token estimate (~4 chars per token heuristic)
@@ -776,18 +1000,63 @@ export class DagExecutor {
 
     // Plugin hook: domain-specific signal processing
     if (this.plugin?.onSignalReceived) {
-      const override = await this.plugin.onSignalReceived(node.name, signal, this.workspacePath);
-      if (override) {
-        if (override.status) signal.status = override.status;
-        if (override.decision) signal.decision = override.decision;
+      const upstreamHandoffs = this.buildUpstreamHandoffs(node);
+      const signalCtx: SignalContext = {
+        runId: this.runId,
+        signal,
+        nodeName: node.name,
+        scope: node.scope,
+        upstreamHandoffs,
+        platform: this.buildPlatformServices(),
+      };
+      let decision: SignalDecision;
+      try {
+        decision = await this.plugin.onSignalReceived(signalCtx);
+      } catch (err) {
+        this.nodePluginFail(node, 'onSignalReceived', err);
+        this.postUpdate();
+        return;
+      }
+      switch (decision.action) {
+        case 'accept':
+          break;
+        case 'accept_with_handoff':
+          await this.writeHandoffs(decision.handoffs ?? [], node);
+          break;
+        case 'reject_and_retry':
+          node.retryCount++;
+          this.transition(node.name, 'retrying');
+          // Re-evaluate; scheduleReadyNodes will reschedule
+          this.postUpdate();
+          return;
+        case 'reject_and_branch':
+          if (decision.branch) {
+            await this.handleBranchDecisionByTarget(node, decision.branch.target, decision.branch.state);
+          }
+          this.postUpdate();
+          return;
       }
     }
 
     // Plugin hook: evolutionary pool update
     if (this.plugin?.onEvaluationResult) {
+      const evalCtx: EvaluationContext = {
+        runId: this.runId,
+        evaluatorNode: node.name,
+        scope: node.scope,
+        candidateId: (signal.outputs as any)?.find?.((o: any) => o.path?.includes('candidate'))?.value as string ?? node.name,
+        fitness: 0,
+        verdict: 'inconclusive',
+        evidence: (signal.outputs ?? []) as unknown as Record<string, unknown>,
+        platform: this.buildPlatformServices(),
+      };
       try {
-        await this.plugin.onEvaluationResult(node.name, signal, this.pool, this.workspacePath);
-      } catch { /* pool updates are best-effort */ }
+        await this.plugin.onEvaluationResult(evalCtx);
+      } catch (err) {
+        const ps = this.buildPlatformServices();
+        ps.logger.error('onEvaluationResult hook threw', { error: String(err), node: node.name });
+        // swallow — pool may be inconsistent; workflow continues
+      }
     }
 
     // Output integrity check — best-effort, does not block pipeline
@@ -836,20 +1105,36 @@ export class DagExecutor {
       // 2. No decision.goto — ask plugin for routing
       let resolved = false;
       if (this.plugin?.onResolveRouting && node.signal) {
-        const routing = await this.plugin.onResolveRouting(node.name, node.signal, nodeDef.branch, this.workspacePath);
-        if (routing) {
-          if (routing.foreach) {
-            const ids = Array.isArray(routing.payload) ? routing.payload as string[] : [];
+        const candidateBranches = nodeDef.branch.map((b: { goto: string }) => b.goto);
+        const routingCtx: RoutingContext = {
+          runId: this.runId,
+          sourceNode: node.name,
+          scope: node.scope,
+          decision: node.signal.decision,
+          candidateBranches,
+          platform: this.buildPlatformServices(),
+        };
+        let routingDecision: RoutingDecision | null = null;
+        try {
+          routingDecision = await this.plugin.onResolveRouting(routingCtx);
+        } catch (err) {
+          this.nodePluginFail(node, 'onResolveRouting', err);
+          this.postUpdate();
+          return;
+        }
+        if (routingDecision) {
+          if (routingDecision.foreach) {
+            const ids = Array.isArray(routingDecision.payload) ? routingDecision.payload as string[] : [];
             if (ids.length > 0) {
-              for (const id of ids) await this.spawnScopedSubDag(routing.goto, String(id));
+              for (const id of ids) await this.spawnScopedSubDag(routingDecision.selectedBranch, String(id));
               resolved = true;
             } else {
-              await this.autoFanOut(node, routing.goto, routing.foreach);
+              await this.autoFanOut(node, routingDecision.selectedBranch, routingDecision.foreach);
               resolved = true;
             }
           } else {
             // Plugin gave us a concrete goto target
-            node.signal!.decision = { goto: routing.goto, reason: 'plugin-resolved', payload: routing.payload ?? null };
+            node.signal!.decision = { goto: routingDecision.selectedBranch, reason: 'plugin-resolved', payload: routingDecision.payload ?? null };
             await this.handleBranchDecision(node);
             resolved = true;
           }
@@ -1173,14 +1458,28 @@ export class DagExecutor {
     };
 
     // Plugin hook: workflow completion
-    await this.plugin?.onWorkflowComplete?.(this.workspacePath, {
-      runId: this.runId,
-      totalNodes: summary.total_nodes,
-      completed: summary.completed,
-      failed: summary.failed,
-      skipped: summary.skipped,
-      durationSeconds: summary.duration_seconds,
-    });
+    if (this.plugin?.onWorkflowComplete) {
+      const status = summary.failed > 0 ? 'failure' : 'success';
+      const completeCtx: WorkflowCompleteContext = {
+        runId: this.runId,
+        workflowName: (this.workflowConfig as any).name ?? (this.workflowConfig as any).workflow ?? 'unknown',
+        workflowVersion: (this.workflowConfig as any).version ?? '0.0.0',
+        workflowConfig: this.workflowConfig.config,
+        runDirectory: path.join(this.workspacePath, '.plurics', 'runs', this.runId),
+        platform: this.buildPlatformServices(),
+        status,
+        duration_seconds: summary.duration_seconds,
+        nodesCompleted: summary.completed,
+        nodesFailed: summary.failed,
+        finalFindings: [],  // TODO: populate from FindingCallback accumulator in future
+      };
+      try {
+        await this.plugin.onWorkflowComplete(completeCtx);
+      } catch (err) {
+        const ps = this.buildPlatformServices();
+        ps.logger.error('onWorkflowComplete hook threw', { error: String(err) });
+      }
+    }
 
     // Update run metadata with final summary
     try {

@@ -109,6 +109,9 @@ export interface WorkflowNodeDef {
   // kind: reasoning — optional toolset declaration (Phase 1: parsed, not used)
   toolset?: ToolsetEntry[];
 
+  // Evolutionary role for pool-based workflows
+  evolutionary_role?: 'generator' | 'evaluator' | 'selector';
+
   // Agent backend type (default: 'claude')
   backend?: 'claude' | 'openai-compat' | 'ollama';
   // process backend: command to execute
