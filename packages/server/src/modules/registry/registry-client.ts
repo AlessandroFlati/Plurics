@@ -15,6 +15,7 @@ import type {
   InvocationRequest,
   InvocationResult,
   ListFilters,
+  ConverterRecord,
 } from './types.js';
 import { RegistryLayout, hashToolDirectory } from './storage/filesystem.js';
 import { RegistryDb } from './storage/db.js';
@@ -224,7 +225,7 @@ export class RegistryClient {
       // 9. SQL transaction + atomic rename.
       try {
         this.db.withTransaction(() => {
-          this.db.insertTool(record, testsRun, testsPassed, testsRequired);
+          this.db.insertTool(record, testsRun, testsPassed, testsRequired, manifest);
           this.db.appendRegistrationLog({
             timestamp: now,
             toolName: manifest.name,
@@ -371,6 +372,10 @@ export class RegistryClient {
 
   findConsumers(schemaName: string): ToolRecord[] {
     return this.db.findConsumers(schemaName).map((r) => this.withDirectory(r));
+  }
+
+  findConverter(source: string, target: string): ConverterRecord | null {
+    return this.db.findConverter(source, target);
   }
 
   private withDirectory(record: ToolRecord): ToolRecord {

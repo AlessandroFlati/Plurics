@@ -9,6 +9,7 @@ import type {
   Stability,
   CostClass,
   ConverterRecord,
+  ToolManifest,
 } from '../types.js';
 
 const EXPECTED_SCHEMA_VERSION = 2;
@@ -217,7 +218,7 @@ export class RegistryDb {
 
   // ---------- Tools ----------
 
-  insertTool(record: ToolRecord, testsRun: number, testsPassed: number, testsRequired: boolean): void {
+  insertTool(record: ToolRecord, testsRun: number, testsPassed: number, testsRequired: boolean, manifest?: ToolManifest): void {
     const db = this.raw();
     const insertToolStmt = db.prepare(`
       INSERT INTO tools (
@@ -282,6 +283,15 @@ export class RegistryDb {
         description: p.description,
         position: p.position,
       });
+    }
+
+    if (manifest?.metadata?.isConverter === true) {
+      this.insertConverter(
+        manifest.metadata.sourceSchema!,
+        manifest.metadata.targetSchema!,
+        manifest.name,
+        manifest.version,
+      );
     }
   }
 
