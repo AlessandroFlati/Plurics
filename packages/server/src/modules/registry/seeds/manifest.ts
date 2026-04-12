@@ -36,4 +36,8 @@ export const SEED_TOOLS: SeedToolDef[] = [
   { name: 'stats.bootstrap_ci',     relPath: './tools/stats.bootstrap_ci/tool.yaml' },
   { name: 'stats.adf_test',         relPath: './tools/stats.adf_test/tool.yaml' },
   { name: 'stats.ljung_box',        relPath: './tools/stats.ljung_box/tool.yaml' },
+  { name: 'sklearn.logistic_regression', relPath: './tools/sklearn.logistic_regression/tool.yaml' },
+  { name: 'sklearn.ridge',               relPath: './tools/sklearn.ridge/tool.yaml' },
+  { name: 'sklearn.lasso',               relPath: './tools/sklearn.lasso/tool.yaml' },
+  { name: 'statsmodels.glm',             relPath: './tools/statsmodels.glm/tool.yaml' },
 ];

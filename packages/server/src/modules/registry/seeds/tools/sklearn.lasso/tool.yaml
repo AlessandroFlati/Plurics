@@ -1,0 +1,30 @@
+name: sklearn.lasso
+version: 1
+description: Fit a Lasso regression model using scikit-learn and return coefficients, intercept, and R-squared.
+category: regression
+inputs:
+  X:
+    schema: NumpyArray
+    required: true
+    description: Feature matrix of shape (n_samples, n_features).
+  y:
+    schema: NumpyArray
+    required: true
+    description: Target vector of shape (n_samples,).
+  alpha:
+    schema: Float
+    required: true
+    description: Regularization strength; must be a positive float.
+outputs:
+  coefficients:
+    schema: NumpyArray
+    description: Fitted regression coefficients (sparse under regularization).
+  intercept:
+    schema: Float
+    description: Fitted intercept term.
+  r_squared:
+    schema: Float
+    description: Coefficient of determination (R^2) on the training data.
+implementation:
+  language: python
+  entry_point: tool.py:run

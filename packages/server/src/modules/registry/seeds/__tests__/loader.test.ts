@@ -20,15 +20,15 @@ describe('loadSeedTools — unit (no Python required)', () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it('first call registers all 28 seed tools', async () => {
+  it('first call registers all 32 seed tools', async () => {
     const result = await loadSeedTools(client);
-    expect(result.registered).toBe(28);
+    expect(result.registered).toBe(32);
     expect(result.skipped).toBe(0);
     expect(result.failed).toBe(0);
     expect(result.errors).toHaveLength(0);
 
     // All tools appear in list()
-    expect(client.list().length).toBeGreaterThanOrEqual(28);
+    expect(client.list().length).toBeGreaterThanOrEqual(32);
 
     // pandas.load_csv — single String input, DataFrame output
     const loadCsv = client.get('pandas.load_csv');
@@ -62,7 +62,7 @@ describe('loadSeedTools — unit (no Python required)', () => {
     await loadSeedTools(client);
     const result2 = await loadSeedTools(client);
     expect(result2.registered).toBe(0);
-    expect(result2.skipped).toBe(28);
+    expect(result2.skipped).toBe(32);
     expect(result2.failed).toBe(0);
     expect(result2.errors).toHaveLength(0);
   });

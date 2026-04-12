@@ -1,0 +1,26 @@
+name: sklearn.logistic_regression
+version: 1
+description: Fit a logistic regression classifier using scikit-learn and return coefficients, intercept, and accuracy.
+category: regression
+inputs:
+  X:
+    schema: NumpyArray
+    required: true
+    description: Feature matrix of shape (n_samples, n_features).
+  y:
+    schema: NumpyArray
+    required: true
+    description: Binary or multi-class target vector of shape (n_samples,).
+outputs:
+  coefficients:
+    schema: NumpyArray
+    description: Fitted model coefficients.
+  intercept:
+    schema: Float
+    description: Fitted intercept term.
+  accuracy:
+    schema: Float
+    description: Classification accuracy on the training data.
+implementation:
+  language: python
+  entry_point: tool.py:run
