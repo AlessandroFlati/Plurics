@@ -193,17 +193,6 @@ describe('OllamaBackend', () => {
     expect(err.category).toBe('backend_error');
   });
 
-  it('sendToolResults throws not_implemented in Phase 1', async () => {
-    const handle = await backend.startConversation({
-      systemPrompt: 'test',
-      toolDefinitions: [],
-      model: 'qwen3.5:35b',
-    });
-    const err = await backend.sendToolResults(handle, []).catch(e => e);
-    expect(err).toBeInstanceOf(BackendError);
-    expect(err.category).toBe('not_implemented');
-  });
-
   it('accumulates history across turns', async () => {
     (global.fetch as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(makeSuccessResponse('Turn 1.'))
@@ -225,5 +214,107 @@ describe('OllamaBackend', () => {
       { role: 'assistant', content: 'Turn 1.' },
       { role: 'user', content: 'Msg 2.' },
     ]);
+  });
+});
+
+describe('OllamaBackend — tool wire format', () => {
+  it('sends tools array in OpenAI function-calling format', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'qwen3.5:35b',
+        created_at: '2026-04-11T00:00:00Z',
+        message: { role: 'assistant', content: 'hi' },
+        done: true,
+        done_reason: 'stop',
+      }),
+    });
+    global.fetch = fetchSpy as any;
+
+    const backend = new OllamaBackend({ baseUrl: 'http://localhost:11434', model: 'qwen3.5:35b' });
+    const tools: import('../new-types.js').ToolDefinition[] = [{
+      name: 'statistics_mean',
+      description: 'Compute mean',
+      inputSchema: { type: 'object', properties: { x: { type: 'number' } }, required: ['x'] },
+    }];
+    const handle = await backend.startConversation({ systemPrompt: 'sys', toolDefinitions: tools, model: 'qwen3.5:35b', maxTokens: 1024 });
+    await backend.sendMessage(handle, { content: 'go' });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.tools).toHaveLength(1);
+    expect(body.tools[0].type).toBe('function');
+    expect(body.tools[0].function.name).toBe('statistics_mean');
+    expect(body.tools[0].function.parameters.properties.x.type).toBe('number');
+  });
+
+  it('parses tool_calls from assistant response', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: 'qwen3.5:35b',
+        created_at: '2026-04-11T00:00:00Z',
+        message: {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{
+            function: { name: 'statistics_mean', arguments: { x: 5 } },
+          }],
+        },
+        done: true,
+        done_reason: 'stop',
+      }),
+    });
+    global.fetch = fetchSpy as any;
+
+    const backend = new OllamaBackend({ baseUrl: 'http://localhost:11434', model: 'qwen3.5:35b' });
+    const handle = await backend.startConversation({ systemPrompt: 'sys', toolDefinitions: [], model: 'qwen3.5:35b', maxTokens: 1024 });
+    const msg = await backend.sendMessage(handle, { content: 'go' });
+
+    expect(msg.toolCalls).toHaveLength(1);
+    expect(msg.toolCalls![0].toolName).toBe('statistics_mean');
+    expect(msg.toolCalls![0].inputs.x).toBe(5);
+  });
+
+  it('sends tool results as role:tool messages without tool_call_id', async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          model: 'qwen3.5:35b',
+          created_at: '2026-04-11T00:00:00Z',
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              function: { name: 'statistics_mean', arguments: {} },
+            }],
+          },
+          done: true,
+          done_reason: 'stop',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          model: 'qwen3.5:35b',
+          created_at: '2026-04-11T00:00:00Z',
+          message: { role: 'assistant', content: 'Result is 42.' },
+          done: true,
+          done_reason: 'stop',
+        }),
+      });
+    global.fetch = fetchSpy as any;
+
+    const backend = new OllamaBackend({ baseUrl: 'http://localhost:11434', model: 'qwen3.5:35b' });
+    const handle = await backend.startConversation({ systemPrompt: 'sys', toolDefinitions: [], model: 'qwen3.5:35b', maxTokens: 1024 });
+    await backend.sendMessage(handle, { content: 'go' });
+    await backend.sendToolResults(handle, [{ toolCallId: 'ignored', content: '42' }]);
+
+    const body = JSON.parse(fetchSpy.mock.calls[1][1].body);
+    const toolMsg = body.messages.find((m: any) => m.role === 'tool');
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg.content).toBe('42');
+    // Ollama 0.4.x does not require tool_call_id
+    expect(toolMsg.tool_call_id).toBeUndefined();
   });
 });
