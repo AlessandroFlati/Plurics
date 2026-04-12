@@ -133,3 +133,114 @@ describe.skipIf(!pythonAvailable() || !numpyAvailable)(
     }, 20_000);
   },
 );
+
+describe(
+  'DagExecutor — type-check integration (e2e)',
+  () => {
+    let tmpRoot: string;
+    let workspacePath: string;
+    let rc: RegistryClient;
+
+    beforeEach(async () => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dag-typecheck-'));
+      workspacePath = path.join(tmpRoot, 'workspace');
+      fs.mkdirSync(workspacePath, { recursive: true });
+
+      rc = new RegistryClient({ rootDir: path.join(tmpRoot, 'registry') });
+      await rc.initialize();
+
+      // Register two tools: sum produces NumpyArray, identity expects NumpyArray
+      await rc.register({ manifestPath: path.join(FIXTURES, 'numpy_sum', 'tool.yaml'), caller: 'human' });
+      await rc.register({ manifestPath: path.join(FIXTURES, 'numpy_identity', 'tool.yaml'), caller: 'human' });
+    });
+
+    afterEach(() => {
+      rc.close();
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    });
+
+    function makeStubs() {
+      const agentRegistry = { getAgentConfig: () => null } as unknown as import('../../agents/agent-registry.js').AgentRegistry;
+      const bootstrap = { setCwd: () => {}, getSystemPrompt: async () => '' } as unknown as import('../../knowledge/agent-bootstrap.js').AgentBootstrap;
+      const presetRepo = { findByPath: async () => null } as unknown as import('../../../db/preset-repository.js').PresetRepository;
+      return { agentRegistry, bootstrap, presetRepo };
+    }
+
+    it('start() throws with "Type mismatch" when schemas are incompatible and no converter exists', async () => {
+      // sum_node outputs NumpyArray, id_node expects NumpyArray — but we wire Float→NumpyArray (mismatch, no converter)
+      const workflowConfig: WorkflowConfig = {
+        name: 'typecheck-fail',
+        config: { agent_timeout_seconds: 60 },
+        nodes: {
+          sum_node: {
+            kind: 'tool',
+            tool: 'test.numpy_sum',
+            toolInputs: { values: [1, 2, 3] },
+            depends_on: [],
+          },
+          // Consume 'sum' (Float) into 'arr' (NumpyArray) — type mismatch
+          id_node: {
+            kind: 'tool',
+            tool: 'test.numpy_identity',
+            toolInputs: { arr: '${sum_node.outputs.sum}' },
+            depends_on: ['sum_node'],
+          },
+        },
+        _yamlPath: '',
+      } as unknown as WorkflowConfig;
+
+      const { agentRegistry, bootstrap, presetRepo } = makeStubs();
+      const executor = new DagExecutor(
+        workflowConfig,
+        workspacePath,
+        tmpRoot,
+        agentRegistry,
+        bootstrap,
+        presetRepo,
+        rc,
+      );
+
+      await expect(executor.start()).rejects.toThrow(/[Tt]ype [Mm]ismatch|type_mismatch/);
+    });
+
+    it('start() does not throw when schemas match exactly (NumpyArray→NumpyArray)', async () => {
+      const workflowConfig: WorkflowConfig = {
+        name: 'typecheck-pass',
+        config: { agent_timeout_seconds: 60 },
+        nodes: {
+          sum_node: {
+            kind: 'tool',
+            tool: 'test.numpy_sum',
+            toolInputs: { values: [1, 2, 3] },
+            depends_on: [],
+          },
+          id_node: {
+            kind: 'tool',
+            tool: 'test.numpy_identity',
+            toolInputs: { arr: '${sum_node.outputs.array}' },
+            depends_on: ['sum_node'],
+          },
+        },
+        _yamlPath: '',
+      } as unknown as WorkflowConfig;
+
+      const { agentRegistry, bootstrap, presetRepo } = makeStubs();
+      const executor = new DagExecutor(
+        workflowConfig,
+        workspacePath,
+        tmpRoot,
+        agentRegistry,
+        bootstrap,
+        presetRepo,
+        rc,
+      );
+
+      // Should not throw during start() (type check passes)
+      // We don't wait for full completion — just verify start() succeeds
+      const startPromise = executor.start();
+      // Give it a moment to begin, then we just verify no rejection on the check itself
+      // The test verifies the type-check guard does not reject a well-typed workflow.
+      await expect(startPromise).resolves.toBeUndefined();
+    }, 20_000);
+  },
+);
