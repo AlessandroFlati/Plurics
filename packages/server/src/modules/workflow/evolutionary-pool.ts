@@ -9,13 +9,16 @@
  * evolutionary behaviors. The platform persists the pool as pool-state.json.
  */
 
+import { createHash } from 'node:crypto';
+
+// T01: Updated CandidateStatus to design-spec values
 export type CandidateStatus =
-  | 'pending'      // Just added, not yet evaluated
-  | 'testing'      // Evaluation in progress
-  | 'confirmed'    // Passed all checks, become part of the knowledge base
-  | 'falsified'    // Failed evaluation with clear counterexample
-  | 'inconclusive' // Tested but neither confirmed nor falsified
-  | 'superseded';  // Replaced by a stronger descendant
+  | 'pending_evaluation' // Just added, not yet evaluated
+  | 'active'             // Evaluation in progress or inconclusive — still eligible
+  | 'confirmed'          // Passed all checks, became part of the knowledge base
+  | 'falsified'          // Failed evaluation with clear counterexample
+  | 'pruned'             // Replaced by a stronger descendant (was: superseded)
+  | 'archived';          // Retired from active use
 
 export interface FitnessScore {
   /** Overall composite score (weighted average). */
@@ -24,52 +27,129 @@ export interface FitnessScore {
   dimensions: Record<string, number>;
 }
 
+// T02: payload replaces content; T03: parents replaces parentIds
 export interface PoolCandidate {
   id: string;
-  content: string;                 // Natural language + formal representation
+  payload: Record<string, unknown>; // Structured candidate data (was: content: string)
   fitness: FitnessScore;
-  generation: number;              // Round in which it was generated
-  parentIds: string[];             // Lineage (for mutation/crossover)
+  generation: number;               // Round in which it was generated
+  parents: string[];                // Lineage (was: parentIds)
   status: CandidateStatus;
   createdAt: number;
   updatedAt: number;
   metadata: Record<string, unknown>; // Plugin-specific fields
 }
 
+// T10: schema_version added
 export interface PoolSnapshot {
+  schema_version: 1;
   version: number;
   timestamp: number;
   candidates: PoolCandidate[];
 }
 
-export type SelectionStrategy = 'tournament' | 'roulette' | 'top-k' | 'random';
+// T09: PoolFilters for list()
+export interface PoolFilters {
+  status?: CandidateStatus | CandidateStatus[];
+  generationRange?: [min: number, max: number];
+  fitnessRange?: [min: number, max: number];
+  hasParent?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// T08: PoolStats for stats()
+export interface PoolStats {
+  total: number;
+  byStatus: Record<CandidateStatus, number>;
+  byGeneration: Record<number, number>;
+  meanFitness: number | null;
+  maxFitness: number | null;
+  minFitness: number | null;
+  oldestActive: string | null;
+  newestActive: string | null;
+}
+
+// T10: StrategyFn type for registerStrategy
+export type StrategyFn = (
+  population: PoolCandidate[],
+  count: number,
+  options?: Record<string, unknown>
+) => PoolCandidate[];
+
+export type SelectionStrategy = 'tournament' | 'roulette' | 'top-k' | 'random' | string;
 
 export interface SelectionOptions {
   strategy: SelectionStrategy;
   k: number;
   /** For tournament: size of each tournament. */
   tournamentSize?: number;
-  /** Filter which statuses are eligible. Default: all non-superseded. */
+  /** Filter which statuses are eligible. Default: active, confirmed, pending_evaluation. */
   statusFilter?: CandidateStatus[];
   /** Exclude specific IDs (e.g. already-processed). */
   excludeIds?: string[];
+  /** Optional structured filters (takes precedence over statusFilter when status is set). */
+  filters?: PoolFilters;
+}
+
+// T04: Content-hash ID generator
+function generateCandidateId(payload: Record<string, unknown>, generation: number): string {
+  const stable = JSON.stringify(payload, Object.keys(payload).sort());
+  const hash = createHash('sha256').update(stable).digest('hex').slice(0, 8);
+  return `cand-${generation}-${hash}`;
 }
 
 export class EvolutionaryPool {
   private candidates = new Map<string, PoolCandidate>();
-  private idCounter = 0;
+  // T07: reverse index for descendants lineage
+  private childrenIndex = new Map<string, Set<string>>();
+  // T10: strategy registry
+  private strategyRegistry = new Map<string, StrategyFn>();
 
-  /** Add a new candidate to the pool. Returns the candidate's ID. */
-  add(candidate: Omit<PoolCandidate, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): string {
-    const id = candidate.id ?? this.generateId();
+  constructor() {
+    // Pre-register built-in strategies
+    this.strategyRegistry.set('top-k', (pop, k) => this.topK(pop, k));
+    this.strategyRegistry.set('tournament', (pop, k, opts) =>
+      this.tournament(pop, k, (opts?.tournamentSize as number) ?? 3));
+    this.strategyRegistry.set('roulette', (pop, k) => this.roulette(pop, k));
+    this.strategyRegistry.set('random', (pop, k) => this.randomSelect(pop, k));
+  }
+
+  // T05: New add() signature with deduplication
+  add(
+    payload: Record<string, unknown>,
+    parents: string[],
+    generation: number,
+    metadata: Record<string, unknown> = {}
+  ): string {
+    const id = generateCandidateId(payload, generation);
+
+    if (this.candidates.has(id)) {
+      // Deduplication: return existing candidate unchanged
+      return id;
+    }
+
     const now = Date.now();
-    const fullCandidate: PoolCandidate = {
-      ...candidate,
+    const candidate: PoolCandidate = {
       id,
+      payload,
+      parents,
+      generation,
+      fitness: { composite: 0, dimensions: {} },
+      status: 'pending_evaluation',
       createdAt: now,
       updatedAt: now,
+      metadata,
     };
-    this.candidates.set(id, fullCandidate);
+    this.candidates.set(id, candidate);
+
+    // Update reverse index for descendants lineage
+    for (const parentId of parents) {
+      if (!this.childrenIndex.has(parentId)) {
+        this.childrenIndex.set(parentId, new Set());
+      }
+      this.childrenIndex.get(parentId)!.add(id);
+    }
+
     return id;
   }
 
@@ -84,12 +164,37 @@ export class EvolutionaryPool {
     });
   }
 
+  // T06: updateFitness method
+  updateFitness(id: string, fitness: number, status?: CandidateStatus): void {
+    const existing = this.candidates.get(id);
+    if (!existing) throw new Error(`Candidate not found: ${id}`);
+    this.candidates.set(id, {
+      ...existing,
+      fitness: { ...existing.fitness, composite: fitness },
+      ...(status !== undefined ? { status } : {}),
+      updatedAt: Date.now(),
+    });
+  }
+
+  // T06: updateStatus method
+  updateStatus(id: string, status: CandidateStatus): void {
+    const existing = this.candidates.get(id);
+    if (!existing) throw new Error(`Candidate not found: ${id}`);
+    this.candidates.set(id, {
+      ...existing,
+      status,
+      updatedAt: Date.now(),
+    });
+  }
+
   /** Retrieve a candidate by ID. */
   get(id: string): PoolCandidate | undefined {
     return this.candidates.get(id);
   }
 
-  /** Get all candidates (copy of internal state). */
+  /**
+   * @deprecated Use list() instead.
+   */
   getAll(): PoolCandidate[] {
     return [...this.candidates.values()];
   }
@@ -100,40 +205,137 @@ export class EvolutionaryPool {
     return [...this.candidates.values()].filter(c => c.status === status).length;
   }
 
-  /** Get all confirmed candidates (sorted by fitness descending). */
+  /**
+   * Get all confirmed candidates (sorted by fitness descending).
+   * @deprecated Use list({ status: 'confirmed' }) instead.
+   */
   getConfirmed(): PoolCandidate[] {
     return [...this.candidates.values()]
       .filter(c => c.status === 'confirmed')
       .sort((a, b) => b.fitness.composite - a.fitness.composite);
   }
 
-  /** Get all falsified candidates (for negative examples). */
+  /**
+   * Get all falsified candidates (for negative examples).
+   * @deprecated Use list({ status: 'falsified' }) instead.
+   */
   getFalsified(): PoolCandidate[] {
     return [...this.candidates.values()]
       .filter(c => c.status === 'falsified')
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  /**
-   * Get the lineage (ancestors) of a candidate.
-   * Returns the candidate itself plus all recursively-resolved parents.
-   */
-  getLineage(id: string): PoolCandidate[] {
+  // T07: Extended getLineage with direction and maxDepth (BFS)
+  getLineage(
+    id: string,
+    direction: 'ancestors' | 'descendants' = 'ancestors',
+    maxDepth?: number
+  ): PoolCandidate[] {
     const result: PoolCandidate[] = [];
     const visited = new Set<string>();
-    const queue = [id];
+    const queue: Array<{ id: string; depth: number }> = [{ id, depth: 0 }];
 
     while (queue.length > 0) {
-      const current = queue.shift()!;
+      const { id: current, depth } = queue.shift()!;
       if (visited.has(current)) continue;
       visited.add(current);
       const candidate = this.candidates.get(current);
-      if (candidate) {
-        result.push(candidate);
-        queue.push(...candidate.parentIds);
+      if (!candidate) continue;
+      if (current !== id) result.push(candidate); // exclude the root itself
+
+      if (maxDepth !== undefined && maxDepth > 0 && depth >= maxDepth) continue;
+
+      if (direction === 'ancestors') {
+        for (const parentId of candidate.parents) {
+          queue.push({ id: parentId, depth: depth + 1 });
+        }
+      } else {
+        const children = this.childrenIndex.get(current) ?? new Set();
+        for (const childId of children) {
+          queue.push({ id: childId, depth: depth + 1 });
+        }
       }
     }
     return result;
+  }
+
+  // T08: stats() method
+  stats(): PoolStats {
+    const all = [...this.candidates.values()];
+    const statuses: CandidateStatus[] = [
+      'pending_evaluation', 'active', 'confirmed', 'falsified', 'pruned', 'archived'
+    ];
+    const byStatus = Object.fromEntries(statuses.map(s => [s, 0])) as Record<CandidateStatus, number>;
+    const byGeneration: Record<number, number> = {};
+    const fitnessValues: number[] = [];
+    const activeCandidates: PoolCandidate[] = [];
+
+    for (const c of all) {
+      byStatus[c.status] = (byStatus[c.status] ?? 0) + 1;
+      byGeneration[c.generation] = (byGeneration[c.generation] ?? 0) + 1;
+      if (c.fitness.composite !== 0 || c.status !== 'pending_evaluation') {
+        fitnessValues.push(c.fitness.composite);
+      }
+      if (c.status === 'active') activeCandidates.push(c);
+    }
+
+    const mean = fitnessValues.length > 0
+      ? fitnessValues.reduce((a, b) => a + b, 0) / fitnessValues.length
+      : null;
+    const maxF = fitnessValues.length > 0 ? Math.max(...fitnessValues) : null;
+    const minF = fitnessValues.length > 0 ? Math.min(...fitnessValues) : null;
+
+    const activeByCreated = activeCandidates.sort((a, b) => a.createdAt - b.createdAt);
+    const oldestActive = activeByCreated[0]
+      ? new Date(activeByCreated[0].createdAt).toISOString() : null;
+    const newestActive = activeByCreated[activeByCreated.length - 1]
+      ? new Date(activeByCreated[activeByCreated.length - 1].createdAt).toISOString() : null;
+
+    return {
+      total: all.length,
+      byStatus,
+      byGeneration,
+      meanFitness: mean,
+      maxFitness: maxF,
+      minFitness: minF,
+      oldestActive,
+      newestActive,
+    };
+  }
+
+  // T09: list(filters?) method
+  list(filters?: PoolFilters): PoolCandidate[] {
+    let result = [...this.candidates.values()];
+    if (!filters) return result;
+
+    if (filters.status !== undefined) {
+      const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
+      result = result.filter(c => statuses.includes(c.status));
+    }
+    if (filters.generationRange !== undefined) {
+      const [min, max] = filters.generationRange;
+      result = result.filter(c => c.generation >= min && c.generation <= max);
+    }
+    if (filters.fitnessRange !== undefined) {
+      const [min, max] = filters.fitnessRange;
+      result = result.filter(c =>
+        c.fitness.composite >= min && c.fitness.composite <= max
+      );
+    }
+    if (filters.hasParent !== undefined) {
+      result = result.filter(c => c.parents.includes(filters.hasParent!));
+    }
+    if (filters.metadata !== undefined) {
+      result = result.filter(c =>
+        Object.entries(filters.metadata!).every(([k, v]) => c.metadata[k] === v)
+      );
+    }
+    return result;
+  }
+
+  // T10: registerStrategy()
+  registerStrategy(name: string, fn: StrategyFn): void {
+    this.strategyRegistry.set(name, fn);
   }
 
   /** Select candidates for exploration using the configured strategy. */
@@ -142,18 +344,10 @@ export class EvolutionaryPool {
     if (eligible.length === 0) return [];
     if (options.k >= eligible.length) return [...eligible];
 
-    switch (options.strategy) {
-      case 'top-k':
-        return this.topK(eligible, options.k);
-      case 'tournament':
-        return this.tournament(eligible, options.k, options.tournamentSize ?? 3);
-      case 'roulette':
-        return this.roulette(eligible, options.k);
-      case 'random':
-        return this.randomSelect(eligible, options.k);
-      default:
-        throw new Error(`Unknown selection strategy: ${options.strategy}`);
-    }
+    const fn = this.strategyRegistry.get(options.strategy);
+    if (fn) return fn(eligible, options.k, options as unknown as Record<string, unknown>);
+
+    throw new Error(`Unknown selection strategy: ${options.strategy}`);
   }
 
   /** Select candidates to use as negative examples (falsified, most recent first). */
@@ -166,50 +360,51 @@ export class EvolutionaryPool {
     return this.getConfirmed().slice(0, k);
   }
 
-  /** Mark a candidate as superseded by a descendant. */
-  markSuperseded(id: string, replacedBy: string): void {
-    this.update(id, { status: 'superseded', metadata: { replacedBy } });
-  }
-
   /** Serialize to a snapshot (for persistence/resume). */
   snapshot(): PoolSnapshot {
     return {
+      schema_version: 1,
       version: 1,
       timestamp: Date.now(),
       candidates: [...this.candidates.values()],
     };
   }
 
-  /** Restore state from a snapshot (for resume). */
+  /** Restore state from a snapshot (for resume). T10: handles new fields + rebuilds childrenIndex. */
   restore(snapshot: PoolSnapshot): void {
     this.candidates.clear();
+    this.childrenIndex.clear();
     for (const c of snapshot.candidates) {
       this.candidates.set(c.id, c);
     }
-    // Reset ID counter so new candidates don't collide
-    const maxNumericId = snapshot.candidates
-      .map(c => parseInt(c.id.replace(/\D/g, ''), 10))
-      .filter(n => !isNaN(n))
-      .reduce((a, b) => Math.max(a, b), 0);
-    this.idCounter = maxNumericId;
+    // Rebuild reverse children index
+    for (const c of snapshot.candidates) {
+      for (const parentId of c.parents) {
+        if (!this.childrenIndex.has(parentId)) {
+          this.childrenIndex.set(parentId, new Set());
+        }
+        this.childrenIndex.get(parentId)!.add(c.id);
+      }
+    }
   }
 
   /** Clear all state (for testing). */
   clear(): void {
     this.candidates.clear();
-    this.idCounter = 0;
+    this.childrenIndex.clear();
   }
 
   // ----- private helpers -----
 
-  private generateId(): string {
-    this.idCounter += 1;
-    return `C-${String(this.idCounter).padStart(3, '0')}`;
-  }
-
   private getEligible(options: SelectionOptions): PoolCandidate[] {
-    const statuses = options.statusFilter ?? ['confirmed', 'pending', 'inconclusive'];
     const excluded = new Set(options.excludeIds ?? []);
+
+    // If structured filters provided and include status, use list() for filtering
+    if (options.filters) {
+      return this.list(options.filters).filter(c => !excluded.has(c.id));
+    }
+
+    const statuses = options.statusFilter ?? ['active', 'confirmed', 'pending_evaluation'];
     return [...this.candidates.values()]
       .filter(c => statuses.includes(c.status) && !excluded.has(c.id));
   }
