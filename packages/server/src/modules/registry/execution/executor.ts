@@ -1,3 +1,4 @@
+import { resolve as resolvePath } from 'node:path';
 import type { InvocationRequest, InvocationResult, ToolRecord } from '../types.js';
 import type { SchemaRegistry } from '../schemas/schema-registry.js';
 import type { ValueStore } from './value-store.js';
@@ -19,6 +20,12 @@ export interface ExecutorDeps {
   // Phase 3: reasoning nodes will pass a scope-local store aliased to the
   // run-level store (no behavioral change until NR Phase 3's tool-calling loop).
   valueStore?: ValueStore | null;
+  /**
+   * Absolute path to the registry module root directory.
+   * Used to resolve relative validatorModule paths (e.g. "schemas/validators/numpy_array.py").
+   * Phase 4c: required for validator invocation.
+   */
+  registryModuleDir?: string | null;
 }
 
 export async function invokeTool(
@@ -61,10 +68,30 @@ export async function invokeTool(
   const outputSchemas = Object.fromEntries(tool.outputs.map((p) => [p.name, p.schemaName]));
   const valueStore = deps.valueStore ?? null;
 
+  // Build per-port schema info dicts for the runner (Phase 4c: validator support).
+  const inputSchemaInfo: Record<string, Record<string, string | null>> = {};
+  for (const port of tool.inputs) {
+    const schemaDef = deps.schemas.get(port.schemaName);
+    let validatorModule: string | null = schemaDef?.validatorModule ?? null;
+    // Resolve relative validator module paths to absolute so the runner can load them.
+    if (validatorModule && deps.registryModuleDir) {
+      const isAbsolute = validatorModule.startsWith('/') || /^[A-Za-z]:[\\/]/.test(validatorModule);
+      if (!isAbsolute) {
+        validatorModule = resolvePath(deps.registryModuleDir, validatorModule);
+      }
+    }
+    inputSchemaInfo[port.name] = {
+      name: port.schemaName,
+      encoding: schemaDef?.encoding ?? 'json_literal',
+      validator_module: validatorModule,
+      validator_function: schemaDef?.validatorFunction ?? 'validate',
+    };
+  }
+
   let envelope: string;
   try {
     const encodeResult = encodeInputs(mergedInputs, inputSchemas, deps.schemas, valueStore);
-    envelope = buildEnvelope(encodeResult.encoded, inputSchemas, outputSchemas, encodeResult.valueRefs);
+    envelope = buildEnvelope(encodeResult.encoded, inputSchemas, outputSchemas, encodeResult.valueRefs, inputSchemaInfo);
   } catch (err) {
     if (err instanceof EncodingError) {
       return {
@@ -123,7 +150,11 @@ export async function invokeTool(
     };
   }
 
-  let parsed: { ok: boolean; outputs?: Record<string, unknown>; error?: { message: string; type: string } };
+  let parsed: {
+    ok: boolean;
+    outputs?: Record<string, unknown>;
+    error?: { message?: string; type?: string; category?: string };
+  };
   try {
     parsed = JSON.parse(sub.stdout);
   } catch {
@@ -139,10 +170,15 @@ export async function invokeTool(
   }
 
   if (sub.exitCode === 1 || parsed.ok === false) {
+    // Pass through schema_validation_failed category instead of remapping to runtime.
+    const category: import('../types.js').InvocationErrorCategory =
+      parsed.error?.category === 'schema_validation_failed'
+        ? 'schema_validation_failed'
+        : 'runtime';
     return {
       success: false,
       error: {
-        category: 'runtime',
+        category,
         message: parsed.error?.message ?? 'tool raised an error',
         stderr: sub.stderr,
       },

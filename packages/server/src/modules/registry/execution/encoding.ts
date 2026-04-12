@@ -136,12 +136,14 @@ export function decodeOutputs(
 /**
  * Build the JSON envelope string sent to the runner on stdin.
  * Includes the value_refs map when it is non-null and non-empty.
+ * Includes input_schema_info when provided (Phase 4c: validator support).
  */
 export function buildEnvelope(
   inputs: Record<string, unknown>,
   inputSchemas: Record<string, string>,
   outputSchemas: Record<string, string>,
   valueRefs?: Record<string, ValueEnvelope> | null,
+  inputSchemaInfo?: Record<string, Record<string, string | null>> | null,
 ): string {
   const payload: Record<string, unknown> = {
     inputs,
@@ -150,6 +152,9 @@ export function buildEnvelope(
   };
   if (valueRefs && Object.keys(valueRefs).length > 0) {
     payload['value_refs'] = valueRefs;
+  }
+  if (inputSchemaInfo && Object.keys(inputSchemaInfo).length > 0) {
+    payload['input_schema_info'] = inputSchemaInfo;
   }
   return JSON.stringify(payload);
 }

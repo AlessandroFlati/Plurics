@@ -180,7 +180,8 @@ export type InvocationErrorCategory =
   | 'runtime'
   | 'output_mismatch'
   | 'subprocess_crash'
-  | 'python_unavailable';
+  | 'python_unavailable'
+  | 'schema_validation_failed';
 
 export type InvocationResult =
   | {

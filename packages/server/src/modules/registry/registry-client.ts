@@ -404,6 +404,7 @@ export class RegistryClient {
         runnerPath: this.layout.runnerPath,
         pythonPath: this.resolvedPythonPath,
         valueStore: valueStore ?? null,
+        registryModuleDir: __dirname,
       },
       tool,
       request,
