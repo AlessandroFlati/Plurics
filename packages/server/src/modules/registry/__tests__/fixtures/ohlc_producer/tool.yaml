@@ -1,0 +1,14 @@
+name: test.ohlc_producer
+version: 1
+description: Produce a minimal OHLC DataFrame for testing converter insertion.
+category: testing
+inputs: {}
+outputs:
+  ohlc:
+    schema: OhlcFrame
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires:
+    - pandas
+    - numpy

@@ -1,0 +1,17 @@
+name: test.return_consumer
+version: 1
+description: Accept a ReturnSeries and compute its mean. Used for converter insertion testing.
+category: testing
+inputs:
+  returns:
+    schema: ReturnSeries
+    required: true
+outputs:
+  mean_return:
+    schema: Float
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires:
+    - pandas
+    - numpy
