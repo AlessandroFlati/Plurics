@@ -40,44 +40,64 @@ nodes:
 
   ingestor:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/ingestor
     depends_on: []
     timeout_seconds: 600
-    model: sonnet
     effort: low
+    toolset:
+      - category: pandas
+      - category: descriptive_statistics
 
   profiler:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/profiler
     depends_on: [ingestor]
     timeout_seconds: 600
-    model: sonnet
     effort: low
+    toolset:
+      - category: pandas
+      - category: descriptive_statistics
 
   hypothesist:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/hypothesist
     depends_on: [profiler]
     max_invocations: 3
     timeout_seconds: 600
-    model: opus
     effort: low
+    toolset:
+      - category: statistics
+      - category: hypothesis_testing
 
   adversary:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/adversary
     depends_on: [hypothesist]
     timeout_seconds: 600
-    model: opus
     effort: low
+    toolset:
+      - category: statistics
+      - category: hypothesis_testing
 
   judge:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/judge
     depends_on: [adversary]
     timeout_seconds: 600
-    model: opus
     effort: low
+    toolset:
+      - category: statistics
+      - category: hypothesis_testing
     branch:
       - condition: "approved >= min"
         goto: architect
@@ -87,27 +107,37 @@ nodes:
 
   architect:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/architect
     depends_on: [judge]
     timeout_seconds: 600
-    model: opus
     effort: low
+    toolset:
+      - category: pandas
+      - category: sklearn
 
   coder:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/coder
     depends_on: [architect]
     timeout_seconds: 600
-    model: sonnet
     effort: low
+    toolset:
+      - category: pandas
+      - category: sklearn
 
   auditor:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/auditor
     depends_on: [coder]
     max_invocations: 5
-    model: opus
     effort: low
+    toolset: []
     branch:
       - condition: "clean"
         goto: executor
@@ -116,28 +146,38 @@ nodes:
 
   fixer:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/fixer
     depends_on: [auditor]
     next: auditor
     timeout_seconds: 600
-    model: sonnet
     effort: low
+    toolset: []
 
   executor:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/executor
     depends_on: [auditor]
     timeout_seconds: 600
-    model: sonnet
     effort: low
+    toolset:
+      - category: pandas
+      - category: sklearn
 
   falsifier:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/falsifier
     depends_on: [executor]
     timeout_seconds: 600
-    model: opus
     effort: low
+    toolset:
+      - category: statistics
+      - category: hypothesis_testing
     branch:
       - condition: "survived"
         goto: generalizer
@@ -146,22 +186,29 @@ nodes:
 
   generalizer:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/generalizer
     depends_on: [falsifier]
     timeout_seconds: 600
-    model: opus
     effort: low
+    toolset: []
 
   reporter:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/reporter
     depends_on: [generalizer]
     timeout_seconds: 300
-    model: sonnet
     effort: low
+    toolset: []
 
   meta_analyst:
     kind: reasoning
+    backend: claude
+    model: claude-3-5-sonnet-20241022
     preset: research/meta-analyst
     depends_on_all: [reporter]
     timeout_seconds: 600
+    toolset: []
