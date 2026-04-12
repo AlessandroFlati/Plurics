@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ClaudeBackend } from '../claude-backend.js';
 import { BackendError } from '../new-types.js';
+import type { ToolDefinition } from '../new-types.js';
 
 const CANNED_SUCCESS = {
   id: 'msg_01',
@@ -78,7 +79,7 @@ describe('ClaudeBackend', () => {
 
     expect(result.content).toBe('The answer is 42.');
     expect(result.stopReason).toBe('end_turn');
-    expect(result.toolCalls).toEqual([]);
+    expect(result.toolCalls).toBeUndefined();
 
     const [url, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.anthropic.com/v1/messages');
@@ -109,11 +110,10 @@ describe('ClaudeBackend', () => {
 
     const [, secondInit] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1] as [string, RequestInit];
     const body = JSON.parse(secondInit.body as string);
-    expect(body.messages).toEqual([
-      { role: 'user', content: 'First message.' },
-      { role: 'assistant', content: 'Turn 1 response.' },
-      { role: 'user', content: 'Second message.' },
-    ]);
+    // assistant content is now the full content array from the API response
+    expect(body.messages[0]).toEqual({ role: 'user', content: 'First message.' });
+    expect(body.messages[1].role).toBe('assistant');
+    expect(body.messages[2]).toEqual({ role: 'user', content: 'Second message.' });
   });
 
   it('throws BackendError with category auth_error on HTTP 401', async () => {
@@ -169,22 +169,6 @@ describe('ClaudeBackend', () => {
     expect(err.category).toBe('rate_limit');
   });
 
-  it('sendToolResults throws not_implemented in Phase 1', async () => {
-    const handle = await backend.startConversation({
-      systemPrompt: 'test',
-      toolDefinitions: [],
-      model: 'claude-sonnet-4-6',
-    });
-
-    await expect(
-      backend.sendToolResults(handle, [])
-    ).rejects.toThrow('not implemented in Phase 1');
-
-    const err = await backend.sendToolResults(handle, []).catch(e => e);
-    expect(err).toBeInstanceOf(BackendError);
-    expect(err.category).toBe('not_implemented');
-  });
-
   it('sendMessage on a closed conversation throws conversation_not_found', async () => {
     const handle = await backend.startConversation({
       systemPrompt: 'test',
@@ -215,5 +199,63 @@ describe('ClaudeBackend', () => {
     const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
     expect(body.max_tokens).toBe(2048);
+  });
+});
+
+describe('ClaudeBackend — tool wire format', () => {
+  it('includes tools array in request body when toolDefinitions provided', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        content: [{ type: 'text', text: 'hello' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    });
+    global.fetch = fetchSpy as any;
+
+    const backend = new ClaudeBackend({ apiKey: 'test-key' });
+    const tools: ToolDefinition[] = [{
+      name: 'statistics_mean',
+      description: 'Compute mean',
+      inputSchema: {
+        type: 'object',
+        properties: { values: { type: 'object', description: 'NumpyArray. Pass a value_ref.' } },
+        required: ['values'],
+      },
+    }];
+    const handle = await backend.startConversation('sys', tools, 'claude-3-5-haiku-20241022', 1024);
+    await backend.sendMessage(handle, 'test');
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.tools).toHaveLength(1);
+    expect(body.tools[0].name).toBe('statistics_mean');
+    expect(body.tools[0].input_schema.properties.values.type).toBe('object');
+  });
+
+  it('parses tool_use blocks into AssistantMessage.toolCalls', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        content: [
+          { type: 'text', text: 'I will call a tool.' },
+          { type: 'tool_use', id: 'tu_001', name: 'statistics_mean',
+            input: { values: { _type: 'value_ref', _handle: 'vs-abc', _schema: 'NumpyArray' } } },
+        ],
+        stop_reason: 'tool_use',
+        usage: { input_tokens: 20, output_tokens: 10 },
+      }),
+    });
+    global.fetch = fetchSpy as any;
+
+    const backend = new ClaudeBackend({ apiKey: 'test-key' });
+    const handle = await backend.startConversation('sys', [], 'claude-3-5-haiku-20241022', 1024);
+    const msg = await backend.sendMessage(handle, 'run tools');
+
+    expect(msg.toolCalls).toHaveLength(1);
+    expect(msg.toolCalls![0].toolCallId).toBe('tu_001');
+    expect(msg.toolCalls![0].toolName).toBe('statistics_mean');
+    expect(msg.toolCalls![0].inputs.values).toMatchObject({ _handle: 'vs-abc' });
+    expect(msg.text).toBe('I will call a tool.');
   });
 });
