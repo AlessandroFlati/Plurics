@@ -33,6 +33,7 @@ copy; edit the source in packages/server/src/modules/registry/python/.
 """
 
 import sys
+import os
 import json
 import base64
 import pickle
@@ -41,12 +42,43 @@ import importlib.util
 from pathlib import Path
 
 
+VALIDATION_DISABLED = os.environ.get("PLURICS_DISABLE_VALIDATION", "0") == "1"
+
+if VALIDATION_DISABLED:
+    print(json.dumps({"type": "validation_disabled", "message": "PLURICS_DISABLE_VALIDATION=1 is set; schema validators are suppressed."}), flush=True)
+
+
 PICKLE_SCHEMAS = {
     'NumpyArray', 'DataFrame', 'SymbolicExpr',
     'Series', 'OhlcFrame', 'FeaturesFrame',
     'ReturnSeries', 'SignalSeries', 'Statistics',
     'RegressionModel', 'ClusteringModel',
 }
+
+
+class SchemaValidationError(Exception):
+    def __init__(self, schema_name: str, message: str):
+        self.schema_name = schema_name
+        self.message = message
+        super().__init__(f"Schema validation failed for {schema_name!r}: {message}")
+
+
+def load_validator(validator_module_path: str, validator_function: str):
+    """Load a validator Python file and return the callable."""
+    spec = importlib.util.spec_from_file_location("_validator", validator_module_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return getattr(mod, validator_function)
+
+
+_validator_cache: dict = {}
+
+
+def get_validator(module_path: str, function_name: str):
+    key = (module_path, function_name)
+    if key not in _validator_cache:
+        _validator_cache[key] = load_validator(module_path, function_name)
+    return _validator_cache[key]
 
 
 def _make_summary(schema_name, value):
@@ -200,6 +232,8 @@ def main():
     output_schemas = envelope.get("output_schemas") or {}
     # Phase 2: map of handle -> pickle_b64 envelope for resolving value_refs in inputs
     value_refs = envelope.get("value_refs") or {}
+    # Phase 4c: per-port schema info dicts with optional validator_module/validator_function
+    input_schema_info = envelope.get("input_schema_info") or {}
 
     try:
         fn = load_entry_point(tool_dir, entry_point)
@@ -215,6 +249,40 @@ def main():
     except Exception as e:
         emit_error("input_decode_error", str(e), traceback.format_exc())
         return 1
+
+    # Phase 4c: validate deserialized inputs against their schema validators.
+    if not VALIDATION_DISABLED:
+        for name, deserialized_value in decoded.items():
+            schema_info = input_schema_info.get(name) or {}
+            if schema_info.get("validator_module"):
+                try:
+                    fn_v = get_validator(
+                        schema_info["validator_module"],
+                        schema_info.get("validator_function", "validate"),
+                    )
+                    ok, err_msg = fn_v(deserialized_value, schema_info)
+                    if not ok:
+                        sys.stdout.write(json.dumps({
+                            "ok": False,
+                            "error": {
+                                "category": "schema_validation_failed",
+                                "message": str(SchemaValidationError(schema_info.get("name", name), err_msg)),
+                                "schema": schema_info.get("name", name),
+                            },
+                        }))
+                        return 1
+                except SchemaValidationError:
+                    raise
+                except Exception as exc:
+                    sys.stdout.write(json.dumps({
+                        "ok": False,
+                        "error": {
+                            "category": "schema_validation_failed",
+                            "message": f"validator raised an unexpected error for port '{name}': {exc}",
+                            "schema": schema_info.get("name", name),
+                        },
+                    }))
+                    return 1
 
     try:
         result = fn(**decoded)
