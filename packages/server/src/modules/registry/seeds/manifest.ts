@@ -76,4 +76,5 @@ export const SEED_TOOLS: SeedToolDef[] = [
   { name: 'scipy.linprog',      relPath: './tools/scipy.linprog/tool.yaml' },
   { name: 'convert.DataFrame_to_NumpyArray', relPath: './tools/convert.DataFrame_to_NumpyArray/v1/tool.yaml' },
   { name: 'convert.NumpyArray_to_DataFrame', relPath: './tools/convert.NumpyArray_to_DataFrame/v1/tool.yaml' },
+  { name: 'convert.OhlcFrame_to_ReturnSeries', relPath: './tools/convert.OhlcFrame_to_ReturnSeries/v1/tool.yaml' },
 ];

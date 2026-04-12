@@ -1,0 +1,35 @@
+name: convert.OhlcFrame_to_ReturnSeries
+version: 1
+description: |
+  Compute log returns from an OHLC DataFrame's close column.
+  Returns a ReturnSeries of length n-1 (first row is dropped by diff).
+
+category: converter
+
+inputs:
+  source:
+    schema: OhlcFrame
+    required: true
+    description: OHLC pandas DataFrame with a 'close' column indexed by timestamp.
+
+outputs:
+  target:
+    schema: ReturnSeries
+    description: pandas Series of log returns indexed by timestamp.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires:
+    - pandas
+    - numpy
+
+tests:
+  file: tests.py
+  required: true
+
+metadata:
+  stability: stable
+  is_converter: true
+  source_schema: OhlcFrame
+  target_schema: ReturnSeries
