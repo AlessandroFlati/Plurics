@@ -37,6 +37,7 @@ import type {
   ToolProposalContext,
 } from './sdk.js';
 import { EvolutionaryPool } from './evolutionary-pool.js';
+import type { CandidateStatus } from './evolutionary-pool.js';
 import { ValueStore } from '../registry/execution/value-store.js';
 import type { AgentRegistry } from '../agents/agent-registry.js';
 import type { AgentBackend as NewAgentBackend } from '../agents/agent-backend.js';
@@ -1203,16 +1204,39 @@ export class DagExecutor {
 
     // Plugin hook: evolutionary pool update
     if (this.plugin?.onEvaluationResult) {
+      const candidateId: string =
+        (signal.outputs as any)?.find?.((o: any) => o.path?.includes('candidate'))?.value as string ?? node.name;
+      const fitnessVal: number =
+        (signal.outputs as any)?.find?.((o: any) => o.name === 'fitness' || o.path?.includes('fitness'))?.value ?? 0;
+      const verdictRaw: string =
+        (signal.outputs as any)?.find?.((o: any) => o.name === 'verdict' || o.path?.includes('verdict'))?.value ?? 'inconclusive';
+      const verdict: EvaluationContext['verdict'] =
+        verdictRaw === 'pass' ? 'pass' : verdictRaw === 'fail' ? 'fail' : 'inconclusive';
+
       const evalCtx: EvaluationContext = {
         runId: this.runId,
         evaluatorNode: node.name,
         scope: node.scope,
-        candidateId: (signal.outputs as any)?.find?.((o: any) => o.path?.includes('candidate'))?.value as string ?? node.name,
-        fitness: 0,
-        verdict: 'inconclusive',
+        candidateId,
+        fitness: fitnessVal,
+        verdict,
         evidence: (signal.outputs ?? []) as unknown as Record<string, unknown>,
         platform: this.buildPlatformServices(),
       };
+
+      // T11: Auto-update pool fitness BEFORE calling the plugin hook
+      if (this.pool.get(candidateId)) {
+        const autoStatus: CandidateStatus = verdict === 'fail' ? 'falsified' : 'active';
+        try {
+          this.pool.updateFitness(candidateId, fitnessVal, autoStatus);
+        } catch (err) {
+          const ps = this.buildPlatformServices();
+          ps.logger.warn('pool.updateFitness failed before onEvaluationResult', {
+            candidateId, error: String(err),
+          });
+        }
+      }
+
       try {
         await this.plugin.onEvaluationResult(evalCtx);
       } catch (err) {

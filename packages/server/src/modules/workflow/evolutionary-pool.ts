@@ -192,37 +192,10 @@ export class EvolutionaryPool {
     return this.candidates.get(id);
   }
 
-  /**
-   * @deprecated Use list() instead.
-   */
-  getAll(): PoolCandidate[] {
-    return [...this.candidates.values()];
-  }
-
   /** Count candidates, optionally filtered by status. */
   count(status?: CandidateStatus): number {
     if (!status) return this.candidates.size;
     return [...this.candidates.values()].filter(c => c.status === status).length;
-  }
-
-  /**
-   * Get all confirmed candidates (sorted by fitness descending).
-   * @deprecated Use list({ status: 'confirmed' }) instead.
-   */
-  getConfirmed(): PoolCandidate[] {
-    return [...this.candidates.values()]
-      .filter(c => c.status === 'confirmed')
-      .sort((a, b) => b.fitness.composite - a.fitness.composite);
-  }
-
-  /**
-   * Get all falsified candidates (for negative examples).
-   * @deprecated Use list({ status: 'falsified' }) instead.
-   */
-  getFalsified(): PoolCandidate[] {
-    return [...this.candidates.values()]
-      .filter(c => c.status === 'falsified')
-      .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   // T07: Extended getLineage with direction and maxDepth (BFS)
@@ -348,16 +321,6 @@ export class EvolutionaryPool {
     if (fn) return fn(eligible, options.k, options as unknown as Record<string, unknown>);
 
     throw new Error(`Unknown selection strategy: ${options.strategy}`);
-  }
-
-  /** Select candidates to use as negative examples (falsified, most recent first). */
-  selectAsNegativeExamples(k: number): PoolCandidate[] {
-    return this.getFalsified().slice(0, k);
-  }
-
-  /** Select top-k candidates for positive context. */
-  selectForContext(k: number): PoolCandidate[] {
-    return this.getConfirmed().slice(0, k);
   }
 
   /** Serialize to a snapshot (for persistence/resume). */
