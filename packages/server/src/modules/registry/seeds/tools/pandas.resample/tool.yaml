@@ -1,0 +1,34 @@
+name: pandas.resample
+version: 1
+description: Resample a time-series DataFrame to a new frequency using an aggregation function.
+category: data_transformation
+tags: [pandas, resample, time-series, dataframe]
+
+inputs:
+  df:
+    schema: DataFrame
+    required: true
+    description: Input time-series DataFrame (index must be a DatetimeIndex).
+  rule:
+    schema: String
+    required: true
+    description: Resampling frequency rule (e.g. "1D", "1H", "1W").
+  agg:
+    schema: String
+    required: true
+    description: Aggregation function name (e.g. "mean", "sum", "max", "min").
+
+outputs:
+  result:
+    schema: DataFrame
+    description: Resampled DataFrame.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [pandas, numpy]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: fast

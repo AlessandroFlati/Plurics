@@ -1,0 +1,34 @@
+name: pandas.groupby_agg
+version: 1
+description: Group a DataFrame by columns and aggregate using specified functions.
+category: data_transformation
+tags: [pandas, groupby, aggregate, dataframe]
+
+inputs:
+  df:
+    schema: DataFrame
+    required: true
+    description: Input DataFrame to group.
+  by:
+    schema: JsonArray
+    required: true
+    description: List of column names to group by.
+  agg:
+    schema: JsonObject
+    required: true
+    description: Aggregation spec mapping column names to aggregation functions.
+
+outputs:
+  result:
+    schema: DataFrame
+    description: Aggregated DataFrame.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [pandas, numpy]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: fast

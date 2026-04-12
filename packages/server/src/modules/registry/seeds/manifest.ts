@@ -62,4 +62,12 @@ export const SEED_TOOLS: SeedToolDef[] = [
   { name: 'sympy.integrate',    relPath: './tools/sympy.integrate/tool.yaml' },
   { name: 'sympy.differentiate', relPath: './tools/sympy.differentiate/tool.yaml' },
   { name: 'sympy.limit',        relPath: './tools/sympy.limit/tool.yaml' },
+  { name: 'pandas.filter',      relPath: './tools/pandas.filter/tool.yaml' },
+  { name: 'pandas.groupby_agg', relPath: './tools/pandas.groupby_agg/tool.yaml' },
+  { name: 'pandas.pivot',       relPath: './tools/pandas.pivot/tool.yaml' },
+  { name: 'pandas.resample',    relPath: './tools/pandas.resample/tool.yaml' },
+  { name: 'pandas.merge',       relPath: './tools/pandas.merge/tool.yaml' },
+  { name: 'pandas.rolling',     relPath: './tools/pandas.rolling/tool.yaml' },
+  { name: 'numpy.reshape',      relPath: './tools/numpy.reshape/tool.yaml' },
+  { name: 'numpy.normalize',    relPath: './tools/numpy.normalize/tool.yaml' },
 ];

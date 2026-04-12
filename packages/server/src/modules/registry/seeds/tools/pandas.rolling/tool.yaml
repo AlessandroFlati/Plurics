@@ -1,0 +1,34 @@
+name: pandas.rolling
+version: 1
+description: Compute a rolling-window aggregation over a DataFrame.
+category: data_transformation
+tags: [pandas, rolling, window, dataframe]
+
+inputs:
+  df:
+    schema: DataFrame
+    required: true
+    description: Input DataFrame.
+  window:
+    schema: Integer
+    required: true
+    description: Size of the rolling window (number of observations).
+  agg:
+    schema: String
+    required: true
+    description: Aggregation function name (e.g. "mean", "sum", "std", "min", "max").
+
+outputs:
+  result:
+    schema: DataFrame
+    description: DataFrame with rolling aggregation applied.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [pandas, numpy]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: fast

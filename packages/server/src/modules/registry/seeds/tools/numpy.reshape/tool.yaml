@@ -1,0 +1,30 @@
+name: numpy.reshape
+version: 1
+description: Reshape a NumpyArray to a specified shape.
+category: data_transformation
+tags: [numpy, reshape, array]
+
+inputs:
+  array:
+    schema: NumpyArray
+    required: true
+    description: Input array to reshape.
+  shape:
+    schema: JsonArray
+    required: true
+    description: Target shape as a list of integers (use -1 for one inferred dimension).
+
+outputs:
+  result:
+    schema: NumpyArray
+    description: Reshaped array.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [numpy]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: fast

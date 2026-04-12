@@ -1,0 +1,38 @@
+name: pandas.merge
+version: 1
+description: Merge two DataFrames on specified columns using a join strategy.
+category: data_transformation
+tags: [pandas, merge, join, dataframe]
+
+inputs:
+  left:
+    schema: DataFrame
+    required: true
+    description: Left DataFrame.
+  right:
+    schema: DataFrame
+    required: true
+    description: Right DataFrame.
+  on:
+    schema: JsonArray
+    required: true
+    description: List of column names to join on.
+  how:
+    schema: String
+    required: true
+    description: Join strategy — one of "inner", "outer", "left", "right".
+
+outputs:
+  result:
+    schema: DataFrame
+    description: Merged DataFrame.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [pandas, numpy]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: fast

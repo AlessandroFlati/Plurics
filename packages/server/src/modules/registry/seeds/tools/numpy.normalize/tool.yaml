@@ -1,0 +1,30 @@
+name: numpy.normalize
+version: 1
+description: Normalize a NumpyArray using a specified vector norm.
+category: data_transformation
+tags: [numpy, normalize, norm, array]
+
+inputs:
+  array:
+    schema: NumpyArray
+    required: true
+    description: Input array to normalize.
+  norm:
+    schema: String
+    required: true
+    description: Norm type — one of "l1", "l2", "max".
+
+outputs:
+  result:
+    schema: NumpyArray
+    description: Normalized array.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [numpy]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: fast

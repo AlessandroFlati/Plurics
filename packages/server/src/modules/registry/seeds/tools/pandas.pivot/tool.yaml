@@ -1,0 +1,38 @@
+name: pandas.pivot
+version: 1
+description: Create a pivot table from a DataFrame.
+category: data_transformation
+tags: [pandas, pivot, reshape, dataframe]
+
+inputs:
+  df:
+    schema: DataFrame
+    required: true
+    description: Input DataFrame to pivot.
+  index:
+    schema: String
+    required: true
+    description: Column to use as the new index.
+  columns:
+    schema: String
+    required: true
+    description: Column whose unique values become new columns.
+  values:
+    schema: String
+    required: true
+    description: Column whose values fill the pivot table cells.
+
+outputs:
+  result:
+    schema: DataFrame
+    description: Pivoted DataFrame.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [pandas, numpy]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: fast

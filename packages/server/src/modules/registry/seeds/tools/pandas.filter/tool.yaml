@@ -1,0 +1,30 @@
+name: pandas.filter
+version: 1
+description: Filter a DataFrame using a query string expression.
+category: data_transformation
+tags: [pandas, filter, query, dataframe]
+
+inputs:
+  df:
+    schema: DataFrame
+    required: true
+    description: Input DataFrame to filter.
+  query:
+    schema: String
+    required: true
+    description: Query string expression (passed to DataFrame.query()).
+
+outputs:
+  result:
+    schema: DataFrame
+    description: Filtered DataFrame.
+
+implementation:
+  language: python
+  entry_point: tool.py:run
+  requires: [pandas, numpy]
+
+metadata:
+  author: plurics-seeds
+  stability: stable
+  cost_class: fast
