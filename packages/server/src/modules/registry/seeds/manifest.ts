@@ -24,4 +24,8 @@ export const SEED_TOOLS: SeedToolDef[] = [
   { name: 'stats.histogram',         relPath: './tools/stats.histogram/tool.yaml' },
   { name: 'stats.autocorrelation',   relPath: './tools/stats.autocorrelation/tool.yaml' },
   { name: 'stats.cross_correlation', relPath: './tools/stats.cross_correlation/tool.yaml' },
+  { name: 'pandas.load_parquet',     relPath: './tools/pandas.load_parquet/tool.yaml' },
+  { name: 'pandas.save_parquet',     relPath: './tools/pandas.save_parquet/tool.yaml' },
+  { name: 'yaml.load',               relPath: './tools/yaml.load/tool.yaml' },
+  { name: 'yaml.dump',               relPath: './tools/yaml.dump/tool.yaml' },
 ];

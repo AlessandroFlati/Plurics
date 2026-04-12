@@ -1,0 +1,23 @@
+name: pandas.save_parquet
+version: 1
+category: data_io
+description: Write a pandas DataFrame to a Parquet file on disk.
+requires:
+  - pandas
+  - pyarrow
+inputs:
+  df:
+    schema: DataFrame
+    required: true
+    description: The DataFrame to write.
+  path:
+    schema: String
+    required: true
+    description: Destination file path (will be created or overwritten).
+outputs:
+  written:
+    schema: Boolean
+    description: True if the file was written successfully.
+implementation:
+  language: python
+  entry_point: tool.py:run

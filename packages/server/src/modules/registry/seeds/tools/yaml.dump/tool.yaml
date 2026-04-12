@@ -1,0 +1,21 @@
+name: yaml.dump
+version: 1
+category: data_io
+description: Serialize a JSON-compatible object to a YAML file on disk.
+requires: []
+inputs:
+  data:
+    schema: JsonObject
+    required: true
+    description: The JSON-compatible object to serialize.
+  path:
+    schema: String
+    required: true
+    description: Destination file path (will be created or overwritten).
+outputs:
+  written:
+    schema: Boolean
+    description: True if the file was written successfully.
+implementation:
+  language: python
+  entry_point: tool.py:run

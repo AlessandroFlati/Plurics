@@ -1,0 +1,17 @@
+name: yaml.load
+version: 1
+category: data_io
+description: Load a YAML file from disk and return its contents as a JSON-compatible object.
+requires: []
+inputs:
+  path:
+    schema: String
+    required: true
+    description: Absolute or relative path to the YAML file.
+outputs:
+  data:
+    schema: JsonObject
+    description: The parsed YAML contents as a JSON-compatible object.
+implementation:
+  language: python
+  entry_point: tool.py:run
