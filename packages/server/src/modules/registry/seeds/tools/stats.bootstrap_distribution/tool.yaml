@@ -1,0 +1,24 @@
+name: stats.bootstrap_distribution
+version: 1
+description: Compute the bootstrap sampling distribution of a statistic over a 1-D sample.
+category: hypothesis_testing
+inputs:
+  sample:
+    schema: NumpyArray
+    required: true
+    description: 1-D array of observed values.
+  statistic:
+    schema: String
+    required: true
+    description: Name of the statistic to resample; one of "mean", "median", or "std".
+  n_resamples:
+    schema: Integer
+    required: false
+    description: Number of bootstrap resamples (default 9999).
+outputs:
+  distribution:
+    schema: NumpyArray
+    description: 1-D array of bootstrapped statistic values, length n_resamples.
+implementation:
+  language: python
+  entry_point: tool.py:run

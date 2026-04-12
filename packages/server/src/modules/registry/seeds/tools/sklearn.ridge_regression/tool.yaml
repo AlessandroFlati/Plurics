@@ -1,4 +1,4 @@
-name: sklearn.ridge
+name: sklearn.ridge_regression
 version: 1
 description: Fit a Ridge regression model using scikit-learn and return coefficients, intercept, and R-squared.
 category: regression

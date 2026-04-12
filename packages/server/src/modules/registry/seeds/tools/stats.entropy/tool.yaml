@@ -1,0 +1,20 @@
+name: stats.entropy
+version: 1
+description: Compute the Shannon entropy of a probability distribution using scipy.stats.entropy.
+category: information_theory
+inputs:
+  probabilities:
+    schema: NumpyArray
+    required: true
+    description: 1-D array of non-negative values representing a probability distribution (need not sum to 1; scipy normalises internally).
+  base:
+    schema: Float
+    required: false
+    description: Logarithm base for the entropy calculation (default null uses natural log).
+outputs:
+  entropy:
+    schema: Float
+    description: Computed entropy value.
+implementation:
+  language: python
+  entry_point: tool.py:run

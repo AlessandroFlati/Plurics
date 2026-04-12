@@ -1,4 +1,4 @@
-name: pandas.filter
+name: pandas.filter_rows
 version: 1
 description: Filter a DataFrame using a query string expression.
 category: data_transformation

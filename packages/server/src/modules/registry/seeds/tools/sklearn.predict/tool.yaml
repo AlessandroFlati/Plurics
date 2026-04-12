@@ -1,0 +1,20 @@
+name: sklearn.predict
+version: 1
+description: Run inference with a fitted scikit-learn regression model and return predictions.
+category: regression
+inputs:
+  model:
+    schema: RegressionModel
+    required: true
+    description: A fitted scikit-learn regression model (e.g. LinearRegression, Ridge, Lasso).
+  x:
+    schema: NumpyArray
+    required: true
+    description: Feature matrix of shape (n_samples, n_features).
+outputs:
+  predictions:
+    schema: NumpyArray
+    description: Predicted values of shape (n_samples,).
+implementation:
+  language: python
+  entry_point: tool.py:run

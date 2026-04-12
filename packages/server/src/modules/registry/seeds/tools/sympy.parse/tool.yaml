@@ -1,0 +1,16 @@
+name: sympy.parse
+version: 1
+description: Parse a mathematical expression string into a SymPy symbolic expression.
+category: symbolic_math
+inputs:
+  expression_string:
+    schema: String
+    required: true
+    description: A mathematical expression as a string (e.g. "x**2 + 2*x + 1").
+outputs:
+  expression:
+    schema: SymbolicExpr
+    description: The parsed SymPy symbolic expression.
+implementation:
+  language: python
+  entry_point: tool.py:run

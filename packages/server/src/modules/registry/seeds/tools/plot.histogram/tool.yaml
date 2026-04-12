@@ -1,0 +1,28 @@
+name: plot.histogram
+version: 1
+description: Render a histogram of numeric values and save it as a PNG file.
+category: plotting
+inputs:
+  values:
+    schema: NumpyArray
+    required: true
+    description: 1-D array of numeric values to histogram.
+  bins:
+    schema: Integer
+    required: false
+    description: Number of histogram bins (default 50).
+  title:
+    schema: String
+    required: false
+    description: Plot title.
+  output_path:
+    schema: String
+    required: true
+    description: Filesystem path where the PNG will be saved.
+outputs:
+  path:
+    schema: String
+    description: Absolute path to the saved PNG file.
+implementation:
+  language: python
+  entry_point: tool.py:run

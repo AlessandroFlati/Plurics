@@ -1,0 +1,36 @@
+name: plot.line
+version: 1
+description: Render a line plot of y vs x and save it as a PNG file.
+category: plotting
+inputs:
+  x:
+    schema: NumpyArray
+    required: true
+    description: 1-D array of x-axis values.
+  y:
+    schema: NumpyArray
+    required: true
+    description: 1-D array of y-axis values.
+  title:
+    schema: String
+    required: false
+    description: Plot title.
+  xlabel:
+    schema: String
+    required: false
+    description: Label for the x axis.
+  ylabel:
+    schema: String
+    required: false
+    description: Label for the y axis.
+  output_path:
+    schema: String
+    required: true
+    description: Filesystem path where the PNG will be saved.
+outputs:
+  path:
+    schema: String
+    description: Absolute path to the saved PNG file.
+implementation:
+  language: python
+  entry_point: tool.py:run

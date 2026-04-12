@@ -1,0 +1,28 @@
+name: plot.heatmap
+version: 1
+description: Render a heatmap of a 2-D matrix using seaborn and save it as a PNG file.
+category: plotting
+inputs:
+  matrix:
+    schema: NumpyArray
+    required: true
+    description: 2-D numeric array to visualise as a heatmap.
+  title:
+    schema: String
+    required: false
+    description: Plot title.
+  cmap:
+    schema: String
+    required: false
+    description: Matplotlib colormap name (default "viridis").
+  output_path:
+    schema: String
+    required: true
+    description: Filesystem path where the PNG will be saved.
+outputs:
+  path:
+    schema: String
+    description: Absolute path to the saved PNG file.
+implementation:
+  language: python
+  entry_point: tool.py:run

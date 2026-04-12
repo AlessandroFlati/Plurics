@@ -1,0 +1,20 @@
+name: ts.compute_returns
+version: 1
+description: Compute log or simple returns from a price series.
+category: time_series
+inputs:
+  prices:
+    schema: Series
+    required: true
+    description: A pandas Series of asset prices indexed by time.
+  method:
+    schema: String
+    required: false
+    description: Return computation method; "log" (default) or "simple".
+outputs:
+  returns:
+    schema: ReturnSeries
+    description: A pandas Series of computed returns (first value is NaN and is dropped).
+implementation:
+  language: python
+  entry_point: tool.py:run

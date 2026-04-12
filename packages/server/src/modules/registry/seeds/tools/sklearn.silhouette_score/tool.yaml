@@ -1,0 +1,20 @@
+name: sklearn.silhouette_score
+version: 1
+description: Compute the mean silhouette coefficient for a clustering result using sklearn.metrics.silhouette_score.
+category: clustering
+inputs:
+  matrix:
+    schema: NumpyArray
+    required: true
+    description: 2-D feature matrix of shape (n_samples, n_features) used to compute distances.
+  labels:
+    schema: NumpyArray
+    required: true
+    description: 1-D integer array of cluster labels, one per sample.
+outputs:
+  score:
+    schema: Float
+    description: Mean silhouette coefficient in the range [-1, 1].
+implementation:
+  language: python
+  entry_point: tool.py:run

@@ -1,4 +1,4 @@
-name: statsmodels.granger_causality
+name: ts.granger_causality
 version: 1
 description: Test Granger causality between two time series up to a given max lag using statsmodels.
 category: time_series

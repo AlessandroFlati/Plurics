@@ -1,0 +1,20 @@
+name: stats.mutual_information
+version: 1
+description: Estimate mutual information between two discrete-valued 1-D arrays using sklearn.metrics.mutual_info_score.
+category: information_theory
+inputs:
+  x:
+    schema: NumpyArray
+    required: true
+    description: 1-D array of integer labels or discrete values.
+  y:
+    schema: NumpyArray
+    required: true
+    description: 1-D array of integer labels or discrete values, same length as x.
+outputs:
+  mi:
+    schema: Float
+    description: Estimated mutual information in nats.
+implementation:
+  language: python
+  entry_point: tool.py:run
