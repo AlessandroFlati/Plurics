@@ -13,13 +13,13 @@ import { TRANSITIONS } from './types.js';
 import { SignalWatcher } from './signal-watcher.js';
 import { validateSignalOutputs } from './signal-validator.js';
 import { generatePurpose } from './purpose-templates.js';
-import { randomHex, writeJsonAtomic, waitForOutput, normalizeAgentPath } from './utils.js';
+import { randomHex, writeJsonAtomic, normalizeAgentPath } from './utils.js';
 import { resolvePresetContent, resolvePlaceholders } from './preset-resolver.js';
 import type { WorkflowPlugin } from './sdk.js';
 import { EvolutionaryPool } from './evolutionary-pool.js';
 import { ValueStore } from '../registry/execution/value-store.js';
 import type { AgentRegistry } from '../agents/agent-registry.js';
-import type { LegacyAgentBackend, AgentConfig, AgentBackend as NewAgentBackend } from '../agents/agent-backend.js';
+import type { AgentBackend as NewAgentBackend } from '../agents/agent-backend.js';
 import type { AgentBootstrap } from '../knowledge/agent-bootstrap.js';
 import type { PresetRepository } from '../../db/preset-repository.js';
 import type { RegistryClient } from '../registry/index.js';
@@ -320,45 +320,6 @@ export class DagExecutor {
     await scanDir(runDir);
   }
 
-  /**
-   * For process/local-llm backends: convert AgentResult to a signal file on disk,
-   * then let the signal watcher pick it up naturally.
-   */
-  private async generateSignalFromResult(nodeName: string, agentName: string, result: import('../agents/agent-backend.js').AgentResult): Promise<void> {
-    const node = this.nodes.get(nodeName);
-    if (!node) return;
-
-    const signal: SignalFile = {
-      schema_version: 1,
-      signal_id: `sig-${Date.now()}-${agentName}-${randomHex(2)}`,
-      agent: node.name.split('.')[0], // base agent name
-      scope: node.scope,
-      status: result.success ? 'success' : 'failure',
-      decision: null,
-      outputs: result.artifacts.map(a => ({
-        path: a.path,
-        sha256: 'generated-by-platform',
-        size_bytes: 0,
-      })),
-      metrics: {
-        duration_seconds: result.durationMs / 1000,
-        retries_used: node.retryCount,
-      },
-      error: result.success ? null : {
-        category: result.exitCode !== null ? 'process_exit' : 'backend_error',
-        message: result.error ?? 'Unknown error',
-        recoverable: true,
-      },
-    };
-
-    // Write signal file so the watcher picks it up
-    const runDir = path.join(this.workspacePath, '.plurics', 'runs', this.runId);
-    const signalDir = path.join(runDir, 'signals');
-    await fs.mkdir(signalDir, { recursive: true });
-    const filename = `${agentName}.done.json`;
-    await writeJsonAtomic(path.join(signalDir, filename), signal);
-  }
-
   private inferStateFromSignal(signal: SignalFile): string {
     if (signal.status === 'success' || signal.status === 'branch') return 'completed';
     if (signal.status === 'failure') return 'failed';
@@ -374,9 +335,7 @@ export class DagExecutor {
         clearTimeout(node.timeoutTimer);
         node.timeoutTimer = null;
       }
-      if (node.terminalId && ['running', 'spawning'].includes(node.state)) {
-        try { await this.registry.kill(node.terminalId); } catch { /* may already be dead */ }
-      }
+      // node.terminalId is null for all new-backend nodes; nothing to kill.
       if (['pending', 'ready', 'spawning', 'running', 'validating', 'retrying'].includes(node.state)) {
         node.state = 'skipped';
       }
@@ -621,7 +580,7 @@ export class DagExecutor {
       ? nodeName.slice(0, -(node.scope.length + 1))
       : nodeName;
     const nodeDef = this.workflowConfig.nodes[baseName] ?? this.workflowConfig.nodes[nodeName];
-    const backendType = nodeDef?.backend ?? 'claude-code';
+    const backendType = nodeDef?.backend ?? 'claude';
     const kind = nodeDef?.kind ?? node.kind ?? 'reasoning';
     const agentName = node.scope ? `${node.name}-${node.scope}` : node.name;
 
@@ -759,115 +718,11 @@ export class DagExecutor {
       return;
     }
 
-    // ---- LEGACY DISPATCH (kind: reasoning + claude-code/process/local-llm) ----
-    // Falls through to the existing agentConfig / registry.spawn path below.
-
-    // Build AgentConfig based on backend type
-    const agentConfig: AgentConfig = {
-      name: agentName,
-      cwd: this.workspacePath,
-      purpose,
-      backend: backendType as import('../agents/agent-backend.js').BackendType,
-    };
-
-    if (backendType === 'claude-code') {
-      const modelMap: Record<string, string> = {
-        opus: 'claude-opus-4-6',
-        sonnet: 'claude-sonnet-4-6',
-        haiku: 'claude-haiku-4-5-20251001',
-      };
-      let command = 'claude --dangerously-skip-permissions';
-      if (nodeDef?.model && modelMap[nodeDef.model]) {
-        command += ` --model ${modelMap[nodeDef.model]}`;
-      }
-      agentConfig.command = command;
-      agentConfig.effort = nodeDef?.effort;
-    } else if (backendType === 'process') {
-      agentConfig.processCommand = nodeDef?.command;
-      agentConfig.workingDir = nodeDef?.working_dir
-        ? resolvePlaceholders(nodeDef.working_dir, { WORKSPACE: this.workspacePath })
-        : undefined;
-    } else if (backendType === 'local-llm') {
-      agentConfig.endpoint = nodeDef?.endpoint;
-      agentConfig.model = nodeDef?.model;
-      agentConfig.maxTokens = nodeDef?.max_tokens;
-      agentConfig.provider = nodeDef?.provider;
-      agentConfig.disableThinking = nodeDef?.disable_thinking;
-    }
-
-    const info = await this.registry.spawn(agentConfig);
-    const session = this.registry.get(info.id);
-
-    // Backend-specific initialization
-    if (backendType === 'claude-code' && session) {
-      // PTY: trigger deferred command via resize, then wait for readiness
-      await session.resize(120, 30);
-
-      // Inject purpose prompt once Claude Code's input is ready.
-      // Note: /compact removed — Claude Code v2.1.100+ has slash autocomplete
-      // that interferes with programmatic injection. Effort level is a no-op now.
-      const injectPurpose = () => {
-        session.write(this.bootstrap.getInjectionPrompt(agentName));
-      };
-
-      waitForOutput(session, /bypass permissions|>\s*$/i, { timeout: 30000 })
-        .then(() => setTimeout(() => injectPurpose(), 2000))
-        .catch(() => injectPurpose());
-
-      // Agent bootstrap files
-      this.bootstrap.setCwd(this.workspacePath);
-      this.bootstrap.createAgentFiles(agentName, purpose);
-      this.bootstrap.regenerateAgentsList(this.registry.listWithPurpose());
-
-    } else if ((backendType === 'process' || backendType === 'local-llm') && session) {
-      // Register exit handler FIRST so we don't miss fast completions
-      session.onExit(() => {
-        const result = session.getResult();
-        if (result && node.state === 'running') {
-          this.generateSignalFromResult(nodeName, agentName, result);
-        }
-      });
-
-      // Non-PTY backends: inject purpose directly
-      // For process: purpose is available via CAAM_PURPOSE_FILE env var
-      // For local-llm: purpose is the prompt (Promise runs in background)
-      if (backendType === 'local-llm') {
-        session.inject(purpose).catch(err => {
-          console.error(`[local-llm] inject failed for ${agentName}:`, err);
-        });
-      }
-    }
-
-    // Attach log capture
-    const logDir = path.join(runDir, 'logs');
-    await fs.mkdir(logDir, { recursive: true });
-    const logPath = path.join(logDir, `${agentName}.log`);
-    const { createWriteStream } = await import('node:fs');
-    const logStream = createWriteStream(logPath, { flags: 'a' });
-    this.registry.onOutput(info.id, (data: string) => { logStream.write(data); });
-    this.registry.onTerminalExitById(info.id, () => { logStream.end(); });
-
-    node.terminalId = info.id;
-    node.startedAt = Date.now();
-    this.transition(nodeName, 'terminal_created');
-
-    // Timeout
-    node.timeoutTimer = setTimeout(() => {
-      if (node.state === 'running') {
-        this.handleTimeout(nodeName);
-      }
-    }, node.timeoutMs);
-
-    // Crash/exit detection (for claude-code; process/llm exit is handled above)
-    if (backendType === 'claude-code') {
-      this.registry.onTerminalExitById(info.id, () => {
-        if (node.state === 'running') {
-          this.handleCrash(nodeName);
-        }
-      });
-    }
-
-    node.invocationCount++;
+    // No legacy dispatch path — all workflows must use 'claude', 'openai-compat', or 'ollama' backends.
+    throw new Error(
+      `Node "${nodeName}" has unsupported backend "${backendType}". ` +
+      `Migrate to backend: claude | openai-compat | ollama.`,
+    );
   }
 
   private async handleSignal(signal: SignalFile, filename: string): Promise<void> {
@@ -1133,9 +988,7 @@ export class DagExecutor {
   private handleTimeout(nodeName: string): void {
     const node = this.nodes.get(nodeName)!;
 
-    if (node.terminalId) {
-      this.registry.kill(node.terminalId).catch(() => {});
-    }
+    // node.terminalId is null for new-backend nodes; nothing to kill.
 
     this.handleRetryOrFail(nodeName, {
       category: 'timeout',

@@ -21,7 +21,8 @@
  *   Declared signal outputs promoted to run-level store on completion.
  */
 
-import type { AgentBackend, ToolCall, ToolResult } from './new-types.js';
+import type { AgentBackend } from './agent-backend.js';
+import type { ToolCall, ToolResult } from './new-types.js';
 import type { ToolDefinition } from './toolset-resolver.js';
 import { extractAndParseSignal, SignalParseError } from './signal-parser.js';
 import type { SignalFile } from './signal-parser.js';
@@ -153,16 +154,16 @@ async function _runLoop(params: ReasoningNodeParams): Promise<ReasoningNodeResul
   // Per-tool consecutive failure counter
   const consecutiveFailures = new Map<string, number>();
 
-  const conversationHandle = await backend.startConversation(
+  const conversationHandle = await backend.startConversation({
     systemPrompt,
     toolDefinitions,
     model,
     maxTokens,
-  );
+  });
 
   try {
     // --- Turn 1: send purpose ---
-    let response = await backend.sendMessage(conversationHandle, purpose);
+    let response = await backend.sendMessage(conversationHandle, { content: purpose });
     turnsUsed++;
     traceLines.push(`[turn ${turnsUsed}] ${response.text}`);
 
@@ -206,7 +207,7 @@ async function _runLoop(params: ReasoningNodeParams): Promise<ReasoningNodeResul
 
         correctiveRepromptIssued = true;
         traceLines.push('[corrective re-prompt issued]');
-        response = await backend.sendMessage(conversationHandle, CORRECTIVE_REPROMPT_MESSAGE);
+        response = await backend.sendMessage(conversationHandle, { content: CORRECTIVE_REPROMPT_MESSAGE });
         turnsUsed++;
         traceLines.push(`[turn ${turnsUsed} corrective] ${response.text}`);
         continue;
@@ -215,7 +216,7 @@ async function _runLoop(params: ReasoningNodeParams): Promise<ReasoningNodeResul
       // Has tool calls — check turn budget
       if (turnsUsed >= maxTurns) {
         traceLines.push('[max turns budget injected]');
-        response = await backend.sendMessage(conversationHandle, MAX_TURNS_MESSAGE);
+        response = await backend.sendMessage(conversationHandle, { content: MAX_TURNS_MESSAGE });
         turnsUsed++;
         traceLines.push(`[turn ${turnsUsed} budget] ${response.text}`);
 

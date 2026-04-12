@@ -1,16 +1,10 @@
 import * as path from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
-import type { AgentRegistry } from '../agents/agent-registry.js';
 
 export class KnowledgeWatcher {
   private watcher: FSWatcher | null = null;
-  private readonly registry: AgentRegistry;
   private cwd: string | null = null;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-  constructor(registry: AgentRegistry) {
-    this.registry = registry;
-  }
 
   start(cwd: string): void {
     if (this.cwd === cwd && this.watcher) return;
@@ -56,14 +50,8 @@ export class KnowledgeWatcher {
 
     this.debounceTimers.set(agentName, setTimeout(() => {
       this.debounceTimers.delete(agentName);
-      this.injectNotification(agentName);
+      // Inbox notification — no-op: PTY agent injection removed with legacy backends.
+      void agentName;
     }, 300));
-  }
-
-  private injectNotification(agentName: string): void {
-    const session = this.registry.getByName(agentName);
-    if (!session || session.info.status !== 'running') return;
-
-    session.write(`\r\n[plurics] New message in your inbox. Read .plurics/agents/${agentName}/inbox.md\r\n`);
   }
 }

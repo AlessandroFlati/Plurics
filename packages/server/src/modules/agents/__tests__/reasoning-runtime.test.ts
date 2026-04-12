@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runReasoningNode } from '../reasoning-runtime.js';
-import type { AgentBackend, AssistantMessage, ToolCall, ToolResult } from '../../agents/new-types.js';
+import type { AgentBackend } from '../../agents/agent-backend.js';
+import type { AssistantMessage, ToolCall, ToolResult } from '../../agents/new-types.js';
 import type { ConversationHandle } from '../../agents/new-types.js';
 
 // ---- helpers ----
@@ -82,7 +83,7 @@ describe('runReasoningNode — single turn (no tool calls)', () => {
     expect(result.turnsUsed).toBe(1);
     expect(result.toolCallsTotal).toBe(0);
     expect(backend.startConversation).toHaveBeenCalledOnce();
-    expect(backend.sendMessage).toHaveBeenCalledWith(MOCK_HANDLE, 'Test purpose.');
+    expect(backend.sendMessage).toHaveBeenCalledWith(MOCK_HANDLE, { content: 'Test purpose.' });
     expect(backend.closeConversation).toHaveBeenCalledOnce();
   });
 });
@@ -181,7 +182,7 @@ describe('runReasoningNode — max turns', () => {
 
     const sendMessageCalls = (backend.sendMessage as ReturnType<typeof vi.fn>).mock.calls;
     const budgetCall = sendMessageCalls.find((call: any[]) =>
-      typeof call[1] === 'string' && call[1].includes('turn budget'),
+      typeof call[1] === 'object' && call[1] !== null && typeof call[1].content === 'string' && call[1].content.includes('turn budget'),
     );
     expect(budgetCall).toBeDefined();
   });

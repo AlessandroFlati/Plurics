@@ -9,7 +9,6 @@ import { WorkspaceRepository } from './db/workspace-repository.js';
 import { PresetRepository } from './db/preset-repository.js';
 import { WorkflowRepository } from './db/workflow-repository.js';
 import { AgentBootstrap } from './modules/knowledge/agent-bootstrap.js';
-import { KnowledgeWatcher } from './modules/knowledge/knowledge-watcher.js';
 import { seedPresetsFromFilesystem } from './modules/workflow/preset-resolver.js';
 import { resolvePluricsPath } from './modules/workflow/utils.js';
 import { RegistryClient } from './modules/registry/index.js';
@@ -23,7 +22,6 @@ const server = http.createServer(app);
 
 const registry = new AgentRegistry();
 const bootstrap = new AgentBootstrap();
-const watcher = new KnowledgeWatcher(registry);
 export const toolRegistry = new RegistryClient();
 
 app.get('/api/health', (_req, res) => {
@@ -282,18 +280,6 @@ app.get('/api/workflows/runs/:runId/findings', (req, res) => {
 });
 
 createWebSocketServer(server, registry, bootstrap, presetRepo, workflowRepo, projectRoot, toolRegistry);
-
-registry.onTerminalExit(() => {
-  bootstrap.regenerateAgentsList(registry.listWithPurpose());
-});
-
-registry.onSpawn(() => {
-  const pluricsDir = bootstrap.getPluricsDir();
-  if (pluricsDir) {
-    const cwd = path.dirname(pluricsDir);
-    watcher.start(cwd);
-  }
-});
 
 // Auto-seed presets from filesystem on startup
 const seeded = seedPresetsFromFilesystem(projectRoot, presetRepo);

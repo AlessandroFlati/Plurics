@@ -218,20 +218,6 @@ describe('DAG executor dispatch routing', () => {
     expect(result.success).toBe(true);
   });
 
-  it('kind: reasoning + backend: claude-code stays on legacy path (smoke)', () => {
-    // The legacy dispatch condition: node.kind === 'reasoning' && backendType is a legacy type
-    // This is a type-level check — verify the condition compiles and routes correctly
-    const legacyBackendTypes = ['claude-code', 'process', 'local-llm'] as const;
-    const newBackendTypes = ['claude', 'openai-compat', 'ollama'] as const;
-
-    for (const t of legacyBackendTypes) {
-      expect(newBackendTypes).not.toContain(t);
-    }
-    for (const t of newBackendTypes) {
-      expect(legacyBackendTypes).not.toContain(t);
-    }
-  });
-
   it('tool node InvocationResult failure maps to signal status failure', () => {
     const failResult: InvocationResult = {
       success: false,

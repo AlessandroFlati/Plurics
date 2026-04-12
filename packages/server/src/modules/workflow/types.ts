@@ -109,8 +109,8 @@ export interface WorkflowNodeDef {
   // kind: reasoning — optional toolset declaration (Phase 1: parsed, not used)
   toolset?: ToolsetEntry[];
 
-  // Agent backend type (default: 'claude-code')
-  backend?: 'claude-code' | 'process' | 'local-llm' | 'claude' | 'openai-compat' | 'ollama';
+  // Agent backend type (default: 'claude')
+  backend?: 'claude' | 'openai-compat' | 'ollama';
   // process backend: command to execute
   command?: string[];
   // process backend: working directory override
