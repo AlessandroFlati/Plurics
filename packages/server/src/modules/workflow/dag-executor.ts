@@ -67,6 +67,8 @@ export class DagExecutor {
   private readonly registryClient: RegistryClient | null;
   private valueStore: ValueStore | null = null;
   private resolvedPlan: ResolvedWorkflowPlan | null = null;
+  /** TypeWarnings accumulated during the run (e.g. validation_disabled). */
+  private readonly typeWarnings: import('./type-checker.js').TypeWarning[] = [];
 
   constructor(
     workflowConfig: WorkflowConfig,
@@ -108,6 +110,10 @@ export class DagExecutor {
     return this.eventLog;
   }
 
+  getTypeWarnings(): import('./type-checker.js').TypeWarning[] {
+    return this.typeWarnings;
+  }
+
   /** Expose the evolutionary pool for plugin use. */
   getPool(): EvolutionaryPool {
     return this.pool;
@@ -116,6 +122,15 @@ export class DagExecutor {
   async start(inputManifest?: import('./input-types.js').InputManifest | null): Promise<void> {
     this.startedAt = Date.now();
     this.bootstrap.setCwd(this.workspacePath);
+
+    // Surface validation_disabled TypeWarning when PLURICS_DISABLE_VALIDATION=1 is set.
+    if (process.env['PLURICS_DISABLE_VALIDATION'] === '1') {
+      this.typeWarnings.push({
+        category: 'validation_disabled',
+        message: 'PLURICS_DISABLE_VALIDATION=1 is set; schema validators are suppressed.',
+        location: { nodeName: '<workflow>' },
+      });
+    }
 
     // Type-check the workflow before scheduling any nodes.
     if (this.registryClient) {

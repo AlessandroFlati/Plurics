@@ -45,7 +45,8 @@ from pathlib import Path
 VALIDATION_DISABLED = os.environ.get("PLURICS_DISABLE_VALIDATION", "0") == "1"
 
 if VALIDATION_DISABLED:
-    print(json.dumps({"type": "validation_disabled", "message": "PLURICS_DISABLE_VALIDATION=1 is set; schema validators are suppressed."}), flush=True)
+    sys.stderr.write(json.dumps({"type": "validation_disabled", "message": "PLURICS_DISABLE_VALIDATION=1 is set; schema validators are suppressed."}) + "\n")
+    sys.stderr.flush()
 
 
 PICKLE_SCHEMAS = {
