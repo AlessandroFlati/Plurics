@@ -108,8 +108,11 @@ export interface FindingRecord {
   runId: string;
   hypothesisId: string;
   content: string;
+  summary: string;
+  verdict: 'confirmed' | 'falsified' | 'inconclusive';
   producedAt: string;
   nodeName: string | null;
+  scope: string | null;
 }
 
 export interface ToolPort {
@@ -156,6 +159,8 @@ export interface ToolUsageSummary {
   invocationCount: number;
   successCount: number;
   failureCount: number;
+  totalDurationMs: number;
+  invokingNodes: string[];
 }
 
 export interface RunFilters {
