@@ -72,4 +72,9 @@ export type ServerMessage =
         registeredBy: 'seed' | 'human' | 'agent';
         runId?: string;
       };
-    };
+    }
+  // T16: Destructive change protocol events
+  | { type: 'destructive_change_detected'; toolName: string; oldVersion: number; newVersion: number; affectedRunIds: string[] }
+  | { type: 'artifacts_invalidated'; runId: string; toolName: string; findingsCount: number; candidatesCount: number }
+  | { type: 'pin_updated'; runId: string; toolName: string; fromVersion: number; toVersion: number }
+  | { type: 'version_policy_applied'; runId: string; action: string; toolName: string };

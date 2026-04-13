@@ -286,6 +286,60 @@ export class DagExecutor {
   }
 
   /**
+   * T14: Check for destructive changes that happened while the run was interrupted.
+   * Called during resumeFrom() after the pool snapshot is loaded.
+   */
+  private async applyDestructiveChangesAtResume(
+    resolvedTools: Record<string, number>,
+    runDir: string,
+  ): Promise<void> {
+    const policy = this.workflowConfig.version_policy ?? DEFAULT_VERSION_POLICY;
+    for (const [toolName, pinnedVersion] of Object.entries(resolvedTools)) {
+      const latest = await this.registryClient!.getLatest(toolName);
+      if (!latest || latest.version <= pinnedVersion) continue;
+      // Check each intermediate version for a destructive flag
+      for (let v = pinnedVersion + 1; v <= latest.version; v++) {
+        const record = await this.registryClient!.getVersion(toolName, v);
+        if (!record) continue;
+        if (record.changeType === 'destructive') {
+          if (policy.on_destructive_change.action === 'abort') {
+            throw new Error(
+              `Resume aborted: tool "${toolName}" received destructive change (v${pinnedVersion}→v${v}). ` +
+              `version_policy.on_destructive_change.action is "abort".`,
+            );
+          } else if (policy.on_destructive_change.action === 'ignore') {
+            console.warn(`[resume] ignoring destructive change in ${toolName} v${pinnedVersion}→v${v}`);
+          } else {
+            // invalidate_and_continue
+            const metaPath = path.join(runDir, 'run-metadata.json');
+            try {
+              const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) as { resolved_tools?: Record<string, number> };
+              const rt = meta.resolved_tools ?? {};
+              rt[toolName] = v;
+              meta.resolved_tools = rt;
+              await writeJsonAtomic(metaPath, meta);
+            } catch (err) {
+              console.error(`[resume] failed to update run-metadata.json:`, err);
+            }
+            this.workflowConfig._resolved_tools = {
+              ...(this.workflowConfig._resolved_tools ?? {}),
+              [toolName]: v,
+            };
+            // Invalidate pool candidates (conservative: all non-terminal candidates)
+            for (const cand of this.pool.list()) {
+              this.pool.invalidate(
+                cand.id,
+                `destructive_change_in_tool:${toolName}:${pinnedVersion}->${v}`,
+              );
+            }
+          }
+          break; // once a destructive version is found, stop checking further
+        }
+      }
+    }
+  }
+
+  /**
    * Handle a tool proposal embedded in a signal's decision field.
    * Called when signal.decision contains a toolProposal key.
    * T21: agent registration — tests are skipped for agent-proposed tools in this phase.
@@ -565,6 +619,20 @@ export class DagExecutor {
       const poolSnapshot = JSON.parse(await fs.readFile(poolPath, 'utf-8'));
       this.pool.restore(poolSnapshot);
     } catch { /* no pool snapshot — fresh pool is fine */ }
+
+    // T14: check for destructive changes that occurred while interrupted
+    {
+      const metaPath = path.join(runDir, 'run-metadata.json');
+      let resolvedTools: Record<string, number> = {};
+      try {
+        const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) as { resolved_tools?: Record<string, number> };
+        resolvedTools = meta.resolved_tools ?? {};
+      } catch { /* no metadata — skip check */ }
+
+      if (this.registryClient && Object.keys(resolvedTools).length > 0) {
+        await this.applyDestructiveChangesAtResume(resolvedTools, runDir);
+      }
+    }
 
     // Rebuild node graph from snapshot (includes scoped nodes)
     for (const ns of snapshot.nodes) {
