@@ -25,6 +25,7 @@ function makeTool(name: string, category: string): ToolRecord {
     costClass: 'fast',
     author: null,
     createdAt: '2026-01-01T00:00:00Z',
+    changeType: 'net_new' as const,
     toolHash: 'abc123',
     status: 'active',
     directory: '/tmp/tools/' + name,

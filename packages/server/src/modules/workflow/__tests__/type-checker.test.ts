@@ -53,6 +53,7 @@ function makeToolRecord(tool: MockTool): ToolRecord {
     costClass: null,
     author: null,
     createdAt: '2026-01-01',
+    changeType: 'net_new' as const,
     toolHash: 'abc123',
     status: 'active',
     directory: '/fake/dir',
