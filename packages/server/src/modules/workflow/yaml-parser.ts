@@ -1,5 +1,12 @@
 import { parse as parseYaml } from 'yaml';
-import type { WorkflowConfig, WorkflowNodeDef } from './types.js';
+import type {
+  WorkflowConfig,
+  WorkflowNodeDef,
+  VersionPolicy,
+  VersionResolution,
+  DestructiveChangeAction,
+  InvalidationScope,
+} from './types.js';
 
 export function parseWorkflow(yamlContent: string): WorkflowConfig {
   const raw = parseYaml(yamlContent);
@@ -34,9 +41,69 @@ export function parseWorkflow(yamlContent: string): WorkflowConfig {
     raw.shared_context = '';
   }
 
+  if (raw.version_policy != null) {
+    raw.version_policy = parseVersionPolicy(raw.version_policy, 'version_policy');
+  }
+
   validateNodeGraph(raw.nodes);
 
   return raw as WorkflowConfig;
+}
+
+function parseVersionPolicy(raw: unknown, path: string): VersionPolicy {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error(`"${path}" must be a mapping`);
+  }
+  const r = raw as Record<string, unknown>;
+
+  let resolution: VersionResolution = 'pin_at_start';
+  if (r.resolution !== undefined) {
+    if (r.resolution !== 'pin_at_start' && r.resolution !== 'always_latest') {
+      throw new Error(`"${path}.resolution" must be pin_at_start|always_latest (got "${r.resolution}")`);
+    }
+    resolution = r.resolution as VersionResolution;
+  }
+
+  let dynamic_tools: string[] = [];
+  if (r.dynamic_tools !== undefined) {
+    if (!Array.isArray(r.dynamic_tools) || r.dynamic_tools.some(p => typeof p !== 'string')) {
+      throw new Error(`"${path}.dynamic_tools" must be a list of strings`);
+    }
+    dynamic_tools = r.dynamic_tools as string[];
+  }
+
+  let action: DestructiveChangeAction = 'invalidate_and_continue';
+  let scope: InvalidationScope | InvalidationScope[] = 'contaminated';
+  const odc = r.on_destructive_change;
+  if (odc !== undefined) {
+    if (typeof odc !== 'object' || odc === null) {
+      throw new Error(`"${path}.on_destructive_change" must be a mapping`);
+    }
+    const odcr = odc as Record<string, unknown>;
+    if (odcr.action !== undefined) {
+      const VALID_ACTIONS = ['invalidate_and_continue', 'abort', 'ignore'];
+      if (!VALID_ACTIONS.includes(odcr.action as string)) {
+        throw new Error(`"${path}.on_destructive_change.action" must be one of ${VALID_ACTIONS.join('|')}`);
+      }
+      action = odcr.action as DestructiveChangeAction;
+    }
+    if (odcr.scope !== undefined) {
+      const VALID_SCOPES = ['contaminated', 'all_findings', 'all_candidates'];
+      if (Array.isArray(odcr.scope)) {
+        if (odcr.scope.some(s => !VALID_SCOPES.includes(s as string))) {
+          throw new Error(`"${path}.on_destructive_change.scope" entries must be one of ${VALID_SCOPES.join('|')}`);
+        }
+        scope = odcr.scope as InvalidationScope[];
+      } else {
+        if (!VALID_SCOPES.includes(odcr.scope as string)) {
+          throw new Error(`"${path}.on_destructive_change.scope" must be one of ${VALID_SCOPES.join('|')}`);
+        }
+        scope = odcr.scope as InvalidationScope;
+      }
+    }
+  }
+
+  return { resolution, dynamic_tools, on_destructive_change: { action, scope } };
 }
 
 function assertField(obj: Record<string, unknown>, field: string, type: string): void {

@@ -61,13 +61,39 @@ export interface DagNode {
   toolset?: ToolsetEntry[];
 }
 
+// --- Version Policy Types ---
+
+export type VersionResolution = 'pin_at_start' | 'always_latest';
+export type DestructiveChangeAction = 'invalidate_and_continue' | 'abort' | 'ignore';
+export type InvalidationScope = 'contaminated' | 'all_findings' | 'all_candidates';
+
+export interface VersionPolicy {
+  resolution: VersionResolution;
+  dynamic_tools: string[];
+  on_destructive_change: {
+    action: DestructiveChangeAction;
+    scope: InvalidationScope | InvalidationScope[];
+  };
+}
+
+export const DEFAULT_VERSION_POLICY: VersionPolicy = {
+  resolution: 'pin_at_start',
+  dynamic_tools: [],
+  on_destructive_change: {
+    action: 'invalidate_and_continue',
+    scope: 'contaminated',
+  },
+};
+
 // --- Workflow YAML Types ---
 
 export interface WorkflowConfig {
   name: string;
   version: number;
+  version_policy?: VersionPolicy;
   plugin?: string;
   _yamlPath?: string;
+  _resolved_tools?: Record<string, number>;
   config: Record<string, unknown> & {
     agent_timeout_seconds: number;
     /** Scope concurrency: max number of distinct sub-DAG scopes active in parallel. */
