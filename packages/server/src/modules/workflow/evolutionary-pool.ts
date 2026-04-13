@@ -18,7 +18,8 @@ export type CandidateStatus =
   | 'confirmed'          // Passed all checks, became part of the knowledge base
   | 'falsified'          // Failed evaluation with clear counterexample
   | 'pruned'             // Replaced by a stronger descendant (was: superseded)
-  | 'archived';          // Retired from active use
+  | 'archived'           // Retired from active use
+  | 'invalidated';       // Produced by a node contaminated by a destructive tool change
 
 export interface FitnessScore {
   /** Overall composite score (weighted average). */
@@ -187,6 +188,23 @@ export class EvolutionaryPool {
     });
   }
 
+  // T11: invalidate() — mark a candidate as contaminated by a destructive tool change
+  invalidate(id: string, reason: string): void {
+    const existing = this.candidates.get(id);
+    if (!existing) throw new Error(`Candidate not found: ${id}`);
+    if (existing.status === 'invalidated') return; // idempotent
+    this.candidates.set(id, {
+      ...existing,
+      status: 'invalidated',
+      metadata: {
+        ...existing.metadata,
+        invalidation_reason: reason,
+        invalidated_at: new Date().toISOString(),
+      },
+      updatedAt: Date.now(),
+    });
+  }
+
   /** Retrieve a candidate by ID. */
   get(id: string): PoolCandidate | undefined {
     return this.candidates.get(id);
@@ -236,7 +254,7 @@ export class EvolutionaryPool {
   stats(): PoolStats {
     const all = [...this.candidates.values()];
     const statuses: CandidateStatus[] = [
-      'pending_evaluation', 'active', 'confirmed', 'falsified', 'pruned', 'archived'
+      'pending_evaluation', 'active', 'confirmed', 'falsified', 'pruned', 'archived', 'invalidated'
     ];
     const byStatus = Object.fromEntries(statuses.map(s => [s, 0])) as Record<CandidateStatus, number>;
     const byGeneration: Record<number, number> = {};
@@ -277,8 +295,15 @@ export class EvolutionaryPool {
   }
 
   // T09: list(filters?) method
+  // T11: exclude 'invalidated' by default unless the caller explicitly filters by status
   list(filters?: PoolFilters): PoolCandidate[] {
     let result = [...this.candidates.values()];
+
+    // Exclude invalidated unless explicitly requested via status filter
+    if (filters?.status === undefined) {
+      result = result.filter(c => c.status !== 'invalidated');
+    }
+
     if (!filters) return result;
 
     if (filters.status !== undefined) {
