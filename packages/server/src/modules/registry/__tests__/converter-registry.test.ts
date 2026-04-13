@@ -19,10 +19,12 @@ function writeConverterFixture(
 ): string {
   const dir = path.join(sourceDir, `${name}-v${version}`);
   fs.mkdirSync(dir, { recursive: true });
+  const changeType = version === 1 ? 'net_new' : 'additive';
   fs.writeFileSync(
     path.join(dir, 'tool.yaml'),
     `name: ${name}
 version: ${version}
+change_type: ${changeType}
 description: Test converter from ${sourceSchema} to ${targetSchema}.
 category: converter
 inputs:
@@ -58,6 +60,7 @@ function writeNonConverterFixture(sourceDir: string, name: string): string {
     path.join(dir, 'tool.yaml'),
     `name: ${name}
 version: 1
+change_type: net_new
 description: Normal (non-converter) tool.
 category: testing
 inputs:
@@ -139,6 +142,7 @@ describe('converter registry', () => {
       path.join(dirV2, 'tool.yaml'),
       `name: convert.A_to_B
 version: 2
+change_type: additive
 description: Updated converter.
 category: converter
 inputs:
@@ -206,6 +210,7 @@ metadata:
       path.join(dir2, 'tool.yaml'),
       `name: convert.bad
 version: 1
+change_type: net_new
 description: Bad converter with mismatched schemas.
 category: converter
 inputs:

@@ -8,12 +8,13 @@ import type {
   ToolStatus,
   Stability,
   CostClass,
+  ChangeType,
   ConverterRecord,
   ToolManifest,
   CategorySummary,
 } from '../types.js';
 
-const EXPECTED_SCHEMA_VERSION = 2;
+const EXPECTED_SCHEMA_VERSION = 3;
 
 const SCHEMA_V1 = `
 CREATE TABLE IF NOT EXISTS registry_meta (
@@ -100,6 +101,16 @@ export interface RegistrationLogRow {
   durationMs: number | null;
 }
 
+export interface ToolInvocationRow {
+  toolName: string;
+  toolVersion: number;
+  runId: string | null;
+  nodeName: string | null;
+  scope: string | null;
+  durationMs: number | null;
+  success: boolean;
+}
+
 interface ToolRow {
   id: number;
   name: string;
@@ -114,6 +125,7 @@ interface ToolRow {
   cost_class: string | null;
   author: string | null;
   created_at: string;
+  change_type: string;
   tool_hash: string;
   tests_required: number;
   tests_passed: number | null;
@@ -183,6 +195,29 @@ export class RegistryDb {
           ON converters(source_schema, target_schema);
       `);
     }
+    if (currentVersion < 3) {
+      // ALTER TABLE fails with "duplicate column" if already applied; catch and ignore.
+      try {
+        db.exec(`ALTER TABLE tools ADD COLUMN change_type TEXT NOT NULL DEFAULT 'net_new';`);
+      } catch {
+        // column already exists — idempotent
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS tool_invocations (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp    TEXT    NOT NULL,
+          tool_name    TEXT    NOT NULL,
+          tool_version INTEGER NOT NULL,
+          run_id       TEXT,
+          node_name    TEXT,
+          scope        TEXT,
+          duration_ms  INTEGER,
+          success      INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_inv_run  ON tool_invocations(run_id);
+        CREATE INDEX IF NOT EXISTS idx_tool_inv_tool ON tool_invocations(tool_name, tool_version);
+      `);
+    }
   }
 
   schemaVersion(): number {
@@ -225,11 +260,11 @@ export class RegistryDb {
       INSERT INTO tools (
         name, version, description, category, tags_json,
         entry_point, language, requires_json, stability, cost_class,
-        author, created_at, tool_hash, tests_required, tests_passed, tests_run, status
+        author, created_at, change_type, tool_hash, tests_required, tests_passed, tests_run, status
       ) VALUES (
         @name, @version, @description, @category, @tags_json,
         @entry_point, @language, @requires_json, @stability, @cost_class,
-        @author, @created_at, @tool_hash, @tests_required, @tests_passed, @tests_run, @status
+        @author, @created_at, @change_type, @tool_hash, @tests_required, @tests_passed, @tests_run, @status
       )
     `);
     const insertPortStmt = db.prepare(`
@@ -253,6 +288,7 @@ export class RegistryDb {
       cost_class: record.costClass,
       author: record.author,
       created_at: record.createdAt,
+      change_type: record.changeType,
       tool_hash: record.toolHash,
       tests_required: testsRequired ? 1 : 0,
       tests_passed: testsPassed,
@@ -404,6 +440,7 @@ export class RegistryDb {
       costClass: row.cost_class as CostClass | null,
       author: row.author,
       createdAt: row.created_at,
+      changeType: (row.change_type ?? 'net_new') as ChangeType,
       toolHash: row.tool_hash,
       status: row.status as ToolStatus,
       directory: '', // filled in by the client layer which knows the layout
@@ -543,6 +580,39 @@ export class RegistryDb {
   }
 
   // ---------- Registration log ----------
+
+  // ---------- Tool invocations ----------
+
+  insertToolInvocation(row: ToolInvocationRow): void {
+    this.raw().prepare(`
+      INSERT INTO tool_invocations
+        (timestamp, tool_name, tool_version, run_id, node_name, scope, duration_ms, success)
+      VALUES (datetime('now'), ?, ?, ?, ?, ?, ?, ?)
+    `).run(row.toolName, row.toolVersion, row.runId, row.nodeName, row.scope, row.durationMs, row.success ? 1 : 0);
+  }
+
+  getRunInvocations(runId: string): ToolInvocationRow[] {
+    return (this.raw().prepare(
+      'SELECT * FROM tool_invocations WHERE run_id = ?'
+    ).all(runId) as Array<Record<string, unknown>>).map(r => ({
+      toolName: r['tool_name'] as string,
+      toolVersion: r['tool_version'] as number,
+      runId: r['run_id'] as string | null,
+      nodeName: r['node_name'] as string | null,
+      scope: r['scope'] as string | null,
+      durationMs: r['duration_ms'] as number | null,
+      success: (r['success'] as number) === 1,
+    }));
+  }
+
+  getToolInvocationsForVersion(toolName: string, toolVersion: number): Array<{ runId: string | null; nodeName: string | null }> {
+    return (this.raw().prepare(
+      'SELECT run_id, node_name FROM tool_invocations WHERE tool_name = ? AND tool_version = ?'
+    ).all(toolName, toolVersion) as Array<Record<string, unknown>>).map(r => ({
+      runId: r['run_id'] as string | null,
+      nodeName: r['node_name'] as string | null,
+    }));
+  }
 
   appendRegistrationLog(row: RegistrationLogRow): void {
     this.raw()

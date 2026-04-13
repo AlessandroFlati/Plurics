@@ -90,10 +90,12 @@ describe('RegistryClient — register', () => {
   function writeFixture(name: string, version: number): string {
     const dir = path.join(sourceDir, `${name}-v${version}`);
     fs.mkdirSync(dir, { recursive: true });
+    const changeType = version === 1 ? 'net_new' : 'additive';
     fs.writeFileSync(
       path.join(dir, 'tool.yaml'),
       `name: ${name}
 version: ${version}
+change_type: ${changeType}
 description: fixture for tests
 inputs:
   value:
@@ -142,6 +144,7 @@ implementation:
       path.join(dir, 'tool.yaml'),
       `name: x
 version: 1
+change_type: net_new
 description: d
 inputs:
   a:
@@ -178,6 +181,7 @@ implementation:
       path.join(dir, 'tool.yaml'),
       `name: x
 version: 1
+change_type: net_new
 description: d
 inputs: {}
 outputs:
@@ -245,10 +249,12 @@ describe('RegistryClient — discovery', () => {
     const dir = path.join(sourceDir, `${name}-v${version}`);
     fs.mkdirSync(dir, { recursive: true });
     const cat = opts.category ? `\ncategory: ${opts.category}` : '';
+    const changeType = version === 1 ? 'net_new' : 'additive';
     fs.writeFileSync(
       path.join(dir, 'tool.yaml'),
       `name: ${name}
 version: ${version}
+change_type: ${changeType}
 description: d${cat}
 inputs:
   a:
@@ -340,6 +346,7 @@ describe('RegistryClient — rebuildFromFilesystem', () => {
       path.join(dir, 'tool.yaml'),
       `name: alpha
 version: 1
+change_type: net_new
 description: d
 inputs:
   a:

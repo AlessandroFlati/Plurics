@@ -21,6 +21,7 @@ import type {
 } from './types.js';
 import { RegistryLayout, hashToolDirectory } from './storage/filesystem.js';
 import { RegistryDb } from './storage/db.js';
+import type { ToolInvocationRow } from './storage/db.js';
 import { SchemaRegistry } from './schemas/schema-registry.js';
 import { BUILTIN_SCHEMAS } from './schemas/builtin.js';
 import { parseToolManifest, ManifestParseError } from './manifest/parser.js';
@@ -223,6 +224,7 @@ export class RegistryClient {
         costClass: manifest.metadata?.costClass ?? null,
         author: manifest.metadata?.author ?? null,
         createdAt: manifest.metadata?.createdAt ?? now,
+        changeType: manifest.change_type,
         toolHash,
         status: 'active',
         directory: targetDir,
@@ -464,7 +466,8 @@ export class RegistryClient {
         metrics: { durationMs: 0 },
       };
     }
-    return invokeTool(
+    const resolvedVersion = tool.version;
+    const result = await invokeTool(
       {
         schemas: this.schemas,
         runnerPath: this.layout.runnerPath,
@@ -475,6 +478,23 @@ export class RegistryClient {
       tool,
       request,
     );
+    if (request.callerContext?.workflowRunId) {
+      try {
+        const invRow: ToolInvocationRow = {
+          toolName: request.toolName,
+          toolVersion: resolvedVersion,
+          runId: request.callerContext.workflowRunId,
+          nodeName: request.callerContext.nodeName,
+          scope: request.callerContext.scope ?? null,
+          durationMs: result.metrics.durationMs,
+          success: result.success,
+        };
+        this.db.insertToolInvocation(invRow);
+      } catch (err) {
+        console.error('[RegistryClient] Failed to log tool invocation:', err);
+      }
+    }
+    return result;
   }
 
   async rebuildFromFilesystem(): Promise<void> {
@@ -519,6 +539,7 @@ export class RegistryClient {
             costClass: manifest.metadata?.costClass ?? null,
             author: manifest.metadata?.author ?? null,
             createdAt: manifest.metadata?.createdAt ?? new Date().toISOString(),
+            changeType: manifest.change_type,
             toolHash: hashToolDirectory(versionDir),
             status: 'active',
             directory: versionDir,

@@ -26,8 +26,8 @@ describe('RegistryDb — schema', () => {
     expect(fs.existsSync(dbPath)).toBe(true);
   });
 
-  it('writes schema_version = 2 in registry_meta', () => {
-    expect(db.schemaVersion()).toBe(2);
+  it('writes schema_version = 3 in registry_meta', () => {
+    expect(db.schemaVersion()).toBe(3);
   });
 
   it('creates all expected tables', () => {
@@ -40,6 +40,7 @@ describe('RegistryDb — schema', () => {
         'registration_log',
         'registry_meta',
         'converters',
+        'tool_invocations',
       ]),
     );
   });
@@ -48,7 +49,7 @@ describe('RegistryDb — schema', () => {
     db.close();
     const db2 = new RegistryDb(dbPath);
     db2.initialize();
-    expect(db2.schemaVersion()).toBe(2);
+    expect(db2.schemaVersion()).toBe(3);
     db2.close();
   });
 });
@@ -73,6 +74,7 @@ function sampleTool(overrides: Partial<ToolRecord> = {}): ToolRecord {
     costClass: 'fast',
     author: 'test',
     createdAt: '2026-04-11T00:00:00Z',
+    changeType: 'net_new',
     toolHash: 'deadbeef',
     status: 'active',
     directory: '/tmp/test.thing/v1',
