@@ -489,28 +489,222 @@ Omitting the `version` field resolves to the latest version at parse time. This 
 
 Versions older than the latest are marked with a `status` field in the database: `active` (available for use), `deprecated` (still available but discouraged), or `archived` (preserved for historical runs but not available to new workflows). Transitions between statuses are manual operations performed by the user; the registry does not automatically deprecate or archive versions.
 
-### 8.2 Version Compatibility Metadata
+### 8.2 Change Type and Compatibility Metadata
 
-When registering a new version of a tool, the caller can declare compatibility metadata: whether the new version is backward-compatible with the previous version, and what changed. This metadata is informational — it does not gate registration or automatic version resolution — but it is useful for diagnosing issues after the fact.
+When registering a new version of a tool, the manifest must declare a `change_type` field that classifies the nature of the change relative to previous versions. This classification is the input to the destructive change protocol specified in §8.4.
+
+Three values are valid:
+
+**`net_new`**: this is the first version of a tool with this name. No previous versions exist. This is the only valid `change_type` for version 1 of any tool.
+
+**`additive`**: the new version adds capabilities without modifying the behavior of code paths that previous versions exhibited. Examples: adding a new optional input port with a default that preserves old behavior, adding a new output port, adding tags or metadata, refactoring without semantic change, adding tests. Claims produced by previous versions remain valid — the old code path is unchanged.
+
+**`destructive`**: the new version corrects or modifies the behavior of code paths that previous versions exhibited. Examples: bugfix in a formula, correction of an edge case, change in the interpretation of a parameter default, fix of an off-by-one error. Claims produced by previous versions are potentially contaminated and must be invalidated according to the destructive change protocol.
+
+The classification is declared by the tool author at registration time and reflects the author's intent. The registry does not verify the classification — it cannot, because determining whether a change is truly additive or destructive requires semantic understanding of the code. If an author declares `additive` when the change is actually destructive, workflows relying on the tool experience silent regressions. Tool authors are responsible for honest classification; when in doubt, `destructive` is the safer choice because it triggers invalidation that workflows can catch, while a silent regression cannot be caught.
+
+Optional supplementary fields provide human-readable context:
 
 ```yaml
 # When registering sklearn.pca v2
 name: sklearn.pca
 version: 2
-compatibility:
-  backward_compatible_with: [1]
-  changes:
-    - "Added `svd_solver` input port with default 'auto'"
-    - "Output `components` shape unchanged"
+change_type: destructive
+changes:
+  - description: "Fixed incorrect handling of input matrices with single column"
+    impacted_code_paths: ["PCA.fit when n_features=1"]
+    severity: high
+  - description: "Updated default svd_solver from 'auto' to 'randomized' for large matrices"
+    impacted_code_paths: ["PCA.fit when n_samples > 10000"]
+    severity: medium
 ```
 
-If `backward_compatible_with` is omitted, the default assumption is that the new version is not backward-compatible. Workflows relying on the old version must pin explicitly, or risk breaking when they re-parse against the latest.
+The `changes` list is informational only — it is read by humans investigating why their workflow was affected by a destructive change, not parsed by the system. A single `change_type: destructive` declaration at the top level is sufficient to trigger the protocol regardless of how many individual changes are listed.
+
+Version 1 of any tool always has `change_type: net_new`. Versions 2 and above must declare either `additive` or `destructive`. A registration that omits `change_type` for a non-first version is rejected.
 
 ### 8.3 Modification and Immutability
 
 A registered tool version is immutable. The registry API does not expose any operation to modify a tool in place. If the tool's author discovers a bug after registration, the correct action is to register a new version with the fix, optionally marking the buggy version as deprecated.
 
 The immutability is enforced by the tool hash stored in the metadata. When a tool is invoked, the registry can optionally verify the current filesystem contents against the stored hash. A mismatch indicates that someone modified the tool directly on disk, bypassing the API. This is treated as a warning rather than a hard error (because the registry cannot prevent a user from using `rm` and `vim`), but the warning is visible in the UI and in the invocation logs.
+
+### 8.4 Version Resolution Policy and Destructive Change Protocol
+
+A workflow that uses tools from the registry must answer two related questions: when the versions of its tools are resolved, and what happens if a tool it uses receives a destructive change during its execution. Both questions are answered by a `version_policy` block in the workflow YAML.
+
+#### 8.4.1 The `version_policy` block
+
+The `version_policy` is a top-level field in the workflow YAML that declares how the workflow handles tool version resolution and reacts to tool changes. It is optional; workflows that omit it receive safe defaults.
+
+```yaml
+name: math-discovery
+version: 2
+
+version_policy:
+  resolution: pin_at_start
+  dynamic_tools:
+    - "custom.*"
+    - "workflow.math_discovery.proposed.*"
+  on_destructive_change:
+    action: invalidate_and_continue
+    scope: contaminated
+
+required_tools:
+  - name: pandas.load_parquet
+    version: latest
+  - name: stats.adf_test
+    version: 1
+
+nodes:
+  ...
+```
+
+The block has three fields, each with sensible defaults.
+
+**`resolution`** determines the default version resolution strategy. Two values are supported:
+
+- `pin_at_start` (default): at workflow parse time, the engine resolves all tool version references to specific versions by consulting the registry. The resolved versions are written to `run-metadata.json` as `resolved_tools` and remain fixed for the duration of the run.
+- `always_latest`: no pinning happens. Every tool invocation resolves its version at dispatch time. This mode is rarely useful in practice but exists for workflows that explicitly want full-volatility semantics.
+
+**`dynamic_tools`** is a list of glob patterns identifying tools that should be resolved at dispatch time regardless of the global `resolution` setting. Tools matching any pattern in this list are excluded from parse-time pinning and are resolved to `latest` on each invocation. This enables self-instrumenting workflows that create tools at runtime via `onToolProposal` (see §10.3) and then invoke those newly-created tools from subsequent nodes.
+
+The `dynamic_tools` declaration affects only *when* versions are resolved, not *whether* the tools are subject to the destructive change protocol. A tool declared as dynamic is equally subject to invalidation if a destructive change is later registered — the dynamic declaration is about availability, not about epistemic validity of claims.
+
+**`on_destructive_change`** declares how the workflow reacts when a destructive change is detected in a tool it has used. Two sub-fields:
+
+- **`action`** determines the high-level reaction:
+  - `invalidate_and_continue` (default): apply the destructive change protocol (§8.4.3), invalidating contaminated artifacts and continuing execution with the new version pinned.
+  - `abort`: terminate the workflow run with status `aborted_due_to_destructive_change`. No partial invalidation, no resume. The run is considered compromised and must be restarted.
+  - `ignore`: the workflow ignores the destructive change. Findings produced with the old version are preserved. Pinned tools continue with the old version (still available because the registry is append-only). Dynamic tools resolve to the new version at their next dispatch (because dispatch-time resolution is memoryless). This action is the most dangerous and must be declared explicitly.
+
+- **`scope`** controls the aggressiveness of invalidation when `action: invalidate_and_continue`:
+  - `contaminated` (default): invalidate only findings and pool candidates that have direct or transitive dependency on invocations of the affected tool. Uses implicit dependency tracking (see §8.4.4).
+  - `all_findings`: invalidate all findings of the run, even those that do not depend on the affected tool. Conservative, simple, no dependency tracking required.
+  - `all_candidates`: invalidate all candidates in the evolutionary pool of the run. Symmetric to `all_findings` but applied to the pool.
+
+  Multiple values may be combined in a list: `scope: [contaminated, all_candidates]` invalidates the contaminated findings and additionally empties the pool.
+
+#### 8.4.2 Defaults
+
+A workflow YAML that omits `version_policy` entirely receives these defaults:
+
+```yaml
+version_policy:
+  resolution: pin_at_start
+  dynamic_tools: []
+  on_destructive_change:
+    action: invalidate_and_continue
+    scope: contaminated
+```
+
+These defaults prioritize safety: workflows that have not thought about version policy get reproducible, invalidation-aware behavior automatically. Only workflows with specific needs (self-instrumentation, maximum rigor, or intentional volatility tolerance) need to override.
+
+#### 8.4.3 The destructive change protocol
+
+When a new version of a tool is registered with `change_type: destructive`, the registry triggers the destructive change protocol. The protocol executes as follows:
+
+1. **Identify affected runs.** The registry scans all workflow runs currently in state `running` or `interrupted` and identifies those that have invoked any previous version of the tool receiving the destructive change. Identification is done by querying `tool_invocations` in `registry.db` (see `persistence.md` §5.1) or, if invocation logging is disabled, by scanning the signal files and value store metadata in each run directory for references to the tool. A run is considered affected if at least one of its nodes has recorded an invocation of a previous version of the tool.
+
+2. **Load the per-run policy.** For each affected run, the system reads the `version_policy.on_destructive_change` block from `workflow.yaml.snapshot` in the run directory. This is the policy that was declared when the run started; changes to the workflow YAML since then are irrelevant.
+
+3. **Apply the action.** Based on the declared action:
+
+   - **`invalidate_and_continue`**: proceed to step 4.
+   - **`abort`**: pause the workflow run, mark it as `aborted_due_to_destructive_change`, write a structured abort record to the run directory with the affected tool name, old version, new version, and the scan of invalidated artifacts that would have been invalidated under `invalidate_and_continue`. Stop. No further actions are taken for this run.
+   - **`ignore`**: do nothing. The workflow continues with its existing pins. A warning is written to the run's log noting that a destructive change was detected and ignored.
+
+4. **Invalidate contaminated artifacts** (only for `invalidate_and_continue`). The invalidation is governed by the declared `scope`:
+
+   - For `scope: contaminated`: identify all findings and pool candidates that depend (directly or transitively) on invocations of the affected tool. Mark them as `invalidated` with a reason code `destructive_change_in_tool:{name}:{old_version}→{new_version}` and a timestamp. Dependency tracking is implicit: a finding or candidate is considered contaminated if it was produced by a node that invoked the affected tool, or by a node transitively downstream in the DAG from such a node. This is conservative — it may invalidate some artifacts that did not strictly depend on the tool — but it is correct in the direction of safety.
+   - For `scope: all_findings`: mark all findings of the run as invalidated with the same reason code. No dependency analysis is performed.
+   - For `scope: all_candidates`: mark all pool candidates of the run as invalidated. No dependency analysis is performed.
+   - For combined scopes: apply each in turn.
+
+5. **Update version pins** (only for `invalidate_and_continue`). For tools pinned at parse time (not in `dynamic_tools`), update the `resolved_tools` entry in `run-metadata.json` to point to the new version. For tools in `dynamic_tools`, no update is needed — the next dispatch will resolve to the new version naturally because resolution happens at dispatch time.
+
+6. **Emit events.** Write events to `workflow_events` and to the WebSocket stream so the UI can display the invalidation to the user. The events include: a `destructive_change_detected` event with the tool name and versions, an `artifacts_invalidated` event with counts of findings and candidates invalidated, and a `pin_updated` event for each tool whose pin was changed.
+
+7. **Resume scheduling.** For runs in `running` state, the scheduler is re-triggered and continues dispatching nodes normally, now using the updated pins (and unchanged `dynamic_tools` resolution). For runs in `interrupted` state, the run remains interrupted — the protocol does not automatically resume an interrupted run, only processes the destructive change so that a future resume sees the cleaned state.
+
+The protocol is fully autonomous. No human intervention is required during execution. The workflow's `version_policy` block encodes the decision in advance, and the registry applies it mechanically when triggered.
+
+#### 8.4.4 Dependency tracking implementation
+
+The `scope: contaminated` invalidation relies on the ability to identify which findings and pool candidates depend on which tool invocations. The current implementation uses **implicit dependency tracking**: at the moment of the destructive change, the system scans the run's tool invocation log (from `tool_invocations` in `registry.db`, or from per-run log files if invocation logging is disabled) and identifies which nodes invoked the affected tool. All findings and candidates produced by those nodes, or by nodes transitively downstream of those nodes in the workflow DAG, are considered contaminated.
+
+This approach is conservative: it may invalidate some artifacts that did not truly depend on the tool (for example, if a node invoked the tool for secondary computations that did not enter its final output). It is never permissive — it will not miss a genuinely contaminated artifact.
+
+An explicit dependency tracking mechanism, where findings and pool candidates maintain a direct list of tool invocations they depend on, can be introduced in the future if the aggressiveness of the implicit approach becomes a problem in practice. For the MVP, implicit tracking is chosen because it requires no additional infrastructure beyond what already exists in the invocation logs.
+
+#### 8.4.5 Resume with destructive change
+
+When a workflow run is resumed from an interrupted state, the resume protocol (specified in `workflow-engine.md` §8) performs a pre-resume check for destructive changes that occurred during the interruption. The check compares the `resolved_tools` recorded in `run-metadata.json` with the current state of the registry and identifies any tool whose newer version (if present) has `change_type: destructive`.
+
+If any destructive changes are detected, the same `version_policy.on_destructive_change` policy is applied automatically before scheduling resumes. This means a resumed workflow follows the same invalidation rules as a running workflow — the policy is temporally symmetric. A workflow declaring `action: invalidate_and_continue` will invalidate contaminated artifacts and continue; a workflow declaring `action: abort` will abort without resuming; a workflow declaring `action: ignore` will resume with the old pinned versions.
+
+The resume protocol does not require human intervention to handle destructive changes. The decision of how to react was made in advance, in the workflow YAML, and the resume applies it mechanically. This preserves Plurics' commitment to autonomous execution: the only human intervention required is writing the YAML.
+
+In the rare case where the resume encounters a structural problem that prevents applying the policy (for example, if the new version of an affected tool has been manually deleted from the registry), the resume fails with a clear error and the run remains in `interrupted` state. The user must then decide manually how to proceed, but this is an error path, not a design feature.
+
+#### 8.4.6 Combinations and example configurations
+
+The `version_policy` block supports a range of workflow rigor levels through different combinations of its fields.
+
+**Maximum rigor** (research workflows where contamination is catastrophic):
+
+```yaml
+version_policy:
+  resolution: pin_at_start
+  dynamic_tools: []
+  on_destructive_change:
+    action: abort
+    scope: all_findings
+```
+
+Any destructive change aborts the run. No partial recovery. The user analyzes the situation and restarts from scratch with the new tool versions.
+
+**Standard research** (balance of safety and progress, the default):
+
+```yaml
+version_policy:
+  resolution: pin_at_start
+  dynamic_tools:
+    - "workflow.X.proposed.*"
+  on_destructive_change:
+    action: invalidate_and_continue
+    scope: contaminated
+```
+
+Contaminated artifacts are invalidated, the run continues with the new version. Self-instrumentation is allowed for tools under the workflow's own namespace.
+
+**Exploratory / benchmark** (stability matters more than correctness):
+
+```yaml
+version_policy:
+  resolution: pin_at_start
+  dynamic_tools: []
+  on_destructive_change:
+    action: ignore
+    scope: contaminated  # ignored when action is ignore
+```
+
+Destructive changes are ignored. The workflow completes with whatever versions it started with, regardless of registry updates. Appropriate for benchmark workflows that must use specific tool versions for their results to be valid.
+
+**Full volatility** (experimental workflows, rarely useful):
+
+```yaml
+version_policy:
+  resolution: always_latest
+  dynamic_tools: []
+  on_destructive_change:
+    action: invalidate_and_continue
+    scope: contaminated
+```
+
+All tools resolve at dispatch time. Any destructive change triggers invalidation.
+
+Workflows are free to design their own combinations. The three fields of `version_policy` are independent axes: resolution timing, dynamic opt-out, and reaction to destructive change. A well-designed workflow matches its configuration to its epistemic needs.
 
 ## 9. Runtime and Execution
 
@@ -630,6 +824,8 @@ nodes:
 At workflow parse time, the engine checks that all required tools exist in the registry. If any are missing, the workflow fails to parse with a clear error listing the missing tools.
 
 Second, within each tool node, the `tool` field names a specific tool that this node invokes. The `tool` field can reference a tool that was not in the top-level `required_tools` list — the engine will check it at parse time anyway — but listing tools at the top level gives a clear summary of the workflow's dependencies for documentation and analysis.
+
+> Tool version resolution behavior and reaction to destructive changes are controlled by the `version_policy` block at the workflow top level. See §8.4 for the full specification. Workflows that omit `version_policy` receive safe defaults (pin at start, invalidate contaminated artifacts on destructive change). Workflows that perform self-instrumentation or have specific rigor requirements should declare `version_policy` explicitly.
 
 ### 10.2 Exposing Tools to Reasoning Nodes
 

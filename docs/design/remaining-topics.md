@@ -74,13 +74,15 @@ Questions raised in design documents that have not been answered. Each requires 
 
 ### 2.1 Tool Registry
 
-**Q1. Tool versioning propagation.** When a new version of a tool is registered while a workflow is running, does the running workflow pick up the new version immediately, or does it continue with the version it resolved at start time? Three options: (a) pin at start, (b) always-latest, (c) pin per node. Inclination is (a) but the policy is not enforced. Source: `HIGH_LEVEL_DESIGN.md` §12.
+**Q1. Tool versioning propagation.** ~~Resolved in commit applying `docs/q1.patch.md`.~~ The `version_policy` block in workflow YAML governs version resolution timing (`pin_at_start` / `always_latest` / per-tool `dynamic_tools`) and reaction to destructive changes (`invalidate_and_continue` / `abort` / `ignore`). Full specification in `docs/design/tool-registry.md` §8.4. No longer open.
 
 **Q2. Cross-language tool support.** Should Plurics commit to Python-only tools, or design for polyglot (Python + TypeScript + compiled binaries)? The runner protocol (`stdin JSON → subprocess → stdout JSON`) is language-agnostic in principle, but the `pickle_b64` encoding and the `PICKLE_SCHEMAS` set are Python-specific. Source: `HIGH_LEVEL_DESIGN.md` §12.
 
 **Q3. System tools vs. workflow tools.** Some tools are universally useful (data I/O, basic stats) and should be available to every workflow. Others are domain-specific and should be opt-in. How to formalize this distinction? Currently all 80 seed tools are always available. Source: `HIGH_LEVEL_DESIGN.md` §12.
 
 **Q4. Automatic dependency installation.** Should `RegistryClient.register()` inspect a tool's `requires` field and offer to install missing packages? Or should the registry remain dependency-agnostic and leave installation to the user? Current behavior: `requires` is informational only. Source: `tool-registry.md` §12.
+
+**Q9. LLM-caused errors and retroactive invalidation.** The destructive change protocol (§8.4 of `tool-registry.md`) catches tool-caused contamination: when a tool is corrected, findings produced with the buggy version are retroactively invalidated. However, a reasoning node could misuse a correct tool — for example, misinterpreting the output of a valid computation — and produce a finding that is contaminated by reasoning error rather than tool error. No mechanism exists to retroactively invalidate findings caused by LLM mistakes in prior nodes. A plugin hook (e.g., `onReasoningRevision`) that could trigger targeted invalidation would address this, but the design is undefined. This question becomes relevant when workflows produce findings that later analyses contradict — the gap is that there is no structured way to trace the contamination back and invalidate dependents. Deferred until a workflow demonstrates the concrete need.
 
 ### 2.2 Multi-User and Deployment
 

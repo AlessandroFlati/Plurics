@@ -65,7 +65,8 @@ type CandidateStatus =
   | 'confirmed'           // Verified as a finding
   | 'falsified'           // Verified as a non-finding
   | 'pruned'              // Removed from active consideration
-  | 'archived';           // Moved to long-term storage
+  | 'archived'            // Moved to long-term storage
+  | 'invalidated';        // Retroactively invalidated by destructive change protocol
 ```
 
 The fields divide into three categories: **identity and structure** (`id`, `payload`, `parents`, `generation`, timestamps), **evaluation state** (`fitness`, `status`, `evaluatedAt`), and **free-form extension** (`metadata`).
@@ -211,6 +212,8 @@ A candidate's life in the pool follows a predictable pattern:
    ┌────────┐ ┌──────┐ ┌────────┐ ┌──────────┐
    │confirmd│ │falsfd│ │ pruned │ │ archived │
    └────────┘ └──────┘ └────────┘ └──────────┘
+        │        │
+        └────────┴──► invalidated  (destructive change protocol)
 ```
 
 A candidate is added in `pending_evaluation` (no fitness yet). Once an evaluator computes its fitness, it transitions to `active`. From `active`, it can move to four terminal states:
@@ -219,6 +222,7 @@ A candidate is added in `pending_evaluation` (no fitness yet). Once an evaluator
 - **`falsified`**: the candidate failed verification. This is one of the failure states, and it is preserved for the lineage record (knowing what didn't work informs future generations).
 - **`pruned`**: the candidate was removed from active consideration to manage population size. Pruning is a workflow-level decision (the plugin requests it via `updateStatus`); the pool does not automatically prune.
 - **`archived`**: the candidate was moved to long-term storage. Used by workflows that want to record interesting candidates without keeping them in the active population.
+- **`invalidated`**: the candidate was marked as invalid retroactively because a tool it depends on received a destructive change. The invalidation is recorded with a reason code in the candidate's metadata (e.g., `destructive_change_in_tool:sklearn.pca:2→3`). Invalidated candidates are preserved in the pool for traceability but are excluded from selection strategies, lineage queries for active candidates, and statistical aggregates. This state is typically entered automatically by the destructive change protocol (see `docs/design/tool-registry.md` §8.4.3), not by explicit plugin action.
 
 The transitions are managed by the plugin via `updateFitness` and `updateStatus`. The pool does not enforce a strict state machine — it accepts any transition the plugin requests — but plugins are encouraged to follow the conventional flow.
 
@@ -427,7 +431,7 @@ This frequency is consistent with how the workflow engine snapshots `node-states
 
 ### 6.3 Resume Reconstruction
 
-When a workflow run is resumed, the pool is reconstructed from `pool-state.json` as part of the resume sequence (covered in `docs/design/workflow-engine.md` Section 8.3, Step 6). The reconstruction:
+When a workflow run is resumed, the pool is reconstructed from `pool-state.json` as part of the resume sequence (covered in `docs/design/workflow-engine.md` Section 8.3, Step 7). The reconstruction:
 
 1. Reads the JSON file and parses it
 2. Validates the schema version matches the current pool implementation
@@ -554,6 +558,7 @@ This section documents the gaps between the current pool implementation and the 
 - Population statistics with all the fields specified in `PoolStats`
 - Status state machine with all seven states (the current implementation may have fewer)
 - Reproducible candidate ids via content hashing
+- Support for the `invalidated` status in the lifecycle, including: adding it to the enum, excluding invalidated candidates from `select()` and active `list()` queries, preserving them for lineage tracing, and handling automatic entry into this state via the destructive change protocol triggered from `RegistryClient`.
 
 **Items that may need design refinement when math-discovery exercises the pool:**
 - Whether the candidate `payload` should have any standard substructure (e.g., a required `summary` field for LLM consumption) or remain entirely free-form

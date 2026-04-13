@@ -31,6 +31,14 @@ description: |
   Discovery workflow for finding patterns in financial time series
   with formal verification via Lean 4.
 
+version_policy:
+  resolution: pin_at_start
+  dynamic_tools:
+    - "workflow.math_discovery.proposed.*"
+  on_destructive_change:
+    action: invalidate_and_continue
+    scope: contaminated
+
 config:
   data_source: ./data/eurusd_5m.parquet
   max_rounds: 5
@@ -103,6 +111,8 @@ The top-level fields are:
 **`version`**: integer version of the workflow definition. Incremented when the YAML structure changes in ways that break compatibility with previous run snapshots.
 
 **`description`**: human-readable description, displayed in the UI and included in run metadata.
+
+**`version_policy`**: declares how the workflow resolves tool versions and reacts to destructive changes in tools it has used. Optional; workflows that omit it receive safe defaults. See `docs/design/tool-registry.md` §8.4 for the full specification of the block's fields and semantics.
 
 **`config`**: arbitrary key-value pairs that the workflow uses for parameterization. Values can be strings, numbers, booleans, or nested objects. Referenced from node YAML using `{{config.key}}` substitution.
 
@@ -644,15 +654,17 @@ When a resume is triggered, the engine performs the following sequence:
 
 **Step 3: Reconstruct the DAG.** Read `node-states.json` and reconstruct the in-memory DAG. Each `NodeInstance` from the snapshot becomes a live `NodeInstance` in the engine. Dynamically created scoped instances are reconstructed alongside the static ones; the snapshot does not distinguish, so this happens automatically.
 
-**Step 4: Reconcile with signals.** Walk the `signals/` directory and process any signal files that are not yet reflected in the DAG state. This catches the case where a signal was written just before the crash but was not yet incorporated into the snapshot. The engine treats these signals as if they had just been emitted: they go through validation, plugin handling, and state transition.
+**Step 4: Check for destructive changes.** Read the `resolved_tools` section of `run-metadata.json` and compare each pinned tool version with the current state of the registry. For any tool whose newer version has `change_type: destructive`, apply the workflow's `version_policy.on_destructive_change` policy automatically. The policy is read from `workflow.yaml.snapshot` in the run directory. This check is specified in `docs/design/tool-registry.md` §8.4.5.
 
-**Step 5: Demote orphaned running nodes.** Any node whose state in the snapshot is `running` or `spawning` is in an inconsistent state — the engine cannot know whether the runtime actually completed before the crash, so it must assume the work is lost. These nodes are demoted to `ready` and will be re-dispatched, with the attempt counter unchanged. (The retry counter increments only on explicit failures, not on resume-induced re-dispatches.)
+**Step 5: Reconcile with signals.** Walk the `signals/` directory and process any signal files that are not yet reflected in the DAG state. This catches the case where a signal was written just before the crash but was not yet incorporated into the snapshot. The engine treats these signals as if they had just been emitted: they go through validation, plugin handling, and state transition.
 
-**Step 6: Restore the pool state.** If the workflow uses an evolutionary pool, parse `pool-state.json` and restore the pool. The plugin's `onWorkflowResume` hook (if implemented) is called at this point with the resume context.
+**Step 6: Demote orphaned running nodes.** Any node whose state in the snapshot is `running` or `spawning` is in an inconsistent state — the engine cannot know whether the runtime actually completed before the crash, so it must assume the work is lost. These nodes are demoted to `ready` and will be re-dispatched, with the attempt counter unchanged. (The retry counter increments only on explicit failures, not on resume-induced re-dispatches.)
 
-**Step 7: Resume scheduling.** Trigger the scheduler sweep. From this point forward, the resumed workflow behaves identically to a workflow that has been running continuously since its start. The scheduler picks up `ready` nodes, dispatches them, processes signals, and progresses through the state machine.
+**Step 7: Restore the pool state.** If the workflow uses an evolutionary pool, parse `pool-state.json` and restore the pool. The plugin's `onWorkflowResume` hook (if implemented) is called at this point with the resume context.
 
-The entire resume sequence completes in seconds for typical workflows. The slowest step is usually Step 4 (reconciling with signals) when there are many signal files to scan, but even with thousands of signals this is fast on local SSD.
+**Step 8: Resume scheduling.** Trigger the scheduler sweep. From this point forward, the resumed workflow behaves identically to a workflow that has been running continuously since its start. The scheduler picks up `ready` nodes, dispatches them, processes signals, and progresses through the state machine.
+
+The entire resume sequence completes in seconds for typical workflows. The slowest step is usually Step 5 (reconciling with signals) when there are many signal files to scan, but even with thousands of signals this is fast on local SSD.
 
 ### 8.4 Idempotency of Resume
 
