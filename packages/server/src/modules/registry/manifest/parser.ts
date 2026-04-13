@@ -1,6 +1,8 @@
 import { parse as parseYaml } from 'yaml';
-import type { ToolManifest, ToolPortSpec, Stability, CostClass } from '../types.js';
+import type { ToolManifest, ToolPortSpec, Stability, CostClass, ChangeType } from '../types.js';
 import { parseTypeExpr, ParseError } from '../../workflow/type-parser.js';
+
+const VALID_CHANGE_TYPES = new Set<string>(['net_new', 'additive', 'destructive']);
 
 export class ManifestParseError extends Error {
   constructor(message: string, public readonly path?: string) {
@@ -95,6 +97,16 @@ export function parseToolManifest(yamlText: string): ToolManifest {
 
   const name = asString(doc.name, 'name');
   const version = asInteger(doc.version, 'version');
+  const rawChangeType = doc.change_type;
+  if (rawChangeType === undefined || rawChangeType === null) {
+    throw new ManifestParseError('change_type is required', 'change_type');
+  }
+  if (typeof rawChangeType !== 'string' || !VALID_CHANGE_TYPES.has(rawChangeType)) {
+    throw new ManifestParseError(
+      `change_type must be one of net_new|additive|destructive (got "${String(rawChangeType)}")`,
+      'change_type',
+    );
+  }
   const description = asString(doc.description, 'description');
 
   const implRaw = doc.implementation;
@@ -117,6 +129,7 @@ export function parseToolManifest(yamlText: string): ToolManifest {
   const manifest: ToolManifest = {
     name,
     version,
+    change_type: rawChangeType as ChangeType,
     description,
     inputs: asPortMap(doc.inputs, 'inputs'),
     outputs: asPortMap(doc.outputs, 'outputs'),

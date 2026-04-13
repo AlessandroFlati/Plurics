@@ -28,6 +28,22 @@ export function validateToolManifest(
     });
   }
 
+  // Rule: version 1 must be net_new; versions > 1 cannot be net_new
+  if (manifest.version === 1 && manifest.change_type !== 'net_new') {
+    errors.push({
+      category: 'manifest_validation',
+      message: `version 1 tools must declare change_type: net_new (got "${manifest.change_type}")`,
+      path: 'change_type',
+    });
+  }
+  if (manifest.version > 1 && manifest.change_type === 'net_new') {
+    errors.push({
+      category: 'manifest_validation',
+      message: `change_type: net_new is only valid for version 1 (got version ${manifest.version})`,
+      path: 'change_type',
+    });
+  }
+
   if (!manifest.description || manifest.description.trim() === '') {
     errors.push({ category: 'manifest_validation', message: 'description must be non-empty', path: 'description' });
   }

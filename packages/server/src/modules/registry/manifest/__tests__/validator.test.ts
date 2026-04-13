@@ -7,6 +7,7 @@ function baseManifest(): ToolManifest {
   return {
     name: 'test.thing',
     version: 1,
+    change_type: 'net_new',
     description: 'd',
     inputs: { a: { schema: 'Integer', required: true } },
     outputs: { r: { schema: 'Integer' } },
@@ -76,5 +77,33 @@ describe('validateToolManifest', () => {
     m.inputs.a.schema = 'Bogus';
     const errors = validateToolManifest(m, schemas);
     expect(errors.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('rejects version 1 with change_type other than net_new', () => {
+    const m = baseManifest();
+    m.version = 1;
+    m.change_type = 'additive';
+    const errors = validateToolManifest(m, schemas);
+    const err = errors.find(e => e.path === 'change_type');
+    expect(err).toBeDefined();
+    expect(err!.message).toMatch(/net_new/);
+  });
+
+  it('rejects version > 1 with change_type net_new', () => {
+    const m = baseManifest();
+    m.version = 2;
+    m.change_type = 'net_new';
+    const errors = validateToolManifest(m, schemas);
+    const err = errors.find(e => e.path === 'change_type');
+    expect(err).toBeDefined();
+    expect(err!.message).toMatch(/version 2/);
+  });
+
+  it('accepts version 2 with additive change_type', () => {
+    const m = baseManifest();
+    m.version = 2;
+    m.change_type = 'additive';
+    const errors = validateToolManifest(m, schemas);
+    expect(errors.filter(e => e.path === 'change_type')).toHaveLength(0);
   });
 });

@@ -11,6 +11,7 @@ export type ToolStatus = 'active' | 'deprecated' | 'archived';
 export type SchemaKind = 'primitive' | 'structured';
 export type SchemaEncoding = 'json_literal' | 'pickle_b64';
 export type SchemaSource = 'builtin' | 'user';
+export type ChangeType = 'net_new' | 'additive' | 'destructive';
 
 // ---------- Schemas ----------
 
@@ -43,6 +44,7 @@ export interface ToolPortSpec {
 export interface ToolManifest {
   name: string;
   version: number;
+  change_type: ChangeType;
   description: string;
   category?: string;
   tags?: string[];
@@ -95,6 +97,7 @@ export interface ToolRecord {
   costClass: CostClass | null;
   author: string | null;
   createdAt: string;
+  changeType: ChangeType;
   toolHash: string;
   status: ToolStatus;
   directory: string;           // absolute path to the v{N} dir

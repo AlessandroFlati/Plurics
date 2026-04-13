@@ -4,6 +4,7 @@ import { parseToolManifest, ManifestParseError } from '../parser.js';
 const MINIMAL_YAML = `
 name: test.echo_int
 version: 1
+change_type: net_new
 description: Echo an integer.
 
 inputs:
@@ -74,6 +75,7 @@ tests:
     const yaml = `
 name: x.y
 version: 1
+change_type: net_new
 description: d
 inputs: {}
 outputs: {}
@@ -93,21 +95,40 @@ implementation:
   });
 
   it('throws when name is missing', () => {
-    expect(() => parseToolManifest('version: 1\ndescription: d\ninputs: {}\noutputs: {}\nimplementation:\n  language: python\n  entry_point: tool.py:run'))
+    expect(() => parseToolManifest('version: 1\nchange_type: net_new\ndescription: d\ninputs: {}\noutputs: {}\nimplementation:\n  language: python\n  entry_point: tool.py:run'))
       .toThrow(/name/);
   });
 
   it('throws when version is missing or not an integer', () => {
-    expect(() => parseToolManifest('name: x\ndescription: d\ninputs: {}\noutputs: {}\nimplementation:\n  language: python\n  entry_point: tool.py:run'))
+    expect(() => parseToolManifest('name: x\nchange_type: net_new\ndescription: d\ninputs: {}\noutputs: {}\nimplementation:\n  language: python\n  entry_point: tool.py:run'))
       .toThrow(/version/);
-    expect(() => parseToolManifest('name: x\nversion: "abc"\ndescription: d\ninputs: {}\noutputs: {}\nimplementation:\n  language: python\n  entry_point: tool.py:run'))
+    expect(() => parseToolManifest('name: x\nversion: "abc"\nchange_type: net_new\ndescription: d\ninputs: {}\noutputs: {}\nimplementation:\n  language: python\n  entry_point: tool.py:run'))
       .toThrow(/version/);
+  });
+
+  it('throws when change_type is missing', () => {
+    expect(() => parseToolManifest('name: x\nversion: 1\ndescription: d\ninputs: {}\noutputs: {}\nimplementation:\n  language: python\n  entry_point: tool.py:run'))
+      .toThrow(/change_type/);
+  });
+
+  it('throws when change_type is invalid', () => {
+    expect(() => parseToolManifest('name: x\nversion: 1\nchange_type: breaking\ndescription: d\ninputs: {}\noutputs: {}\nimplementation:\n  language: python\n  entry_point: tool.py:run'))
+      .toThrow(/change_type/);
+  });
+
+  it('accepts all valid change_type values', () => {
+    for (const ct of ['net_new', 'additive', 'destructive']) {
+      const yaml = `name: x\nversion: 1\nchange_type: ${ct}\ndescription: d\ninputs: {}\noutputs: {}\nimplementation:\n  language: python\n  entry_point: tool.py:run`;
+      const m = parseToolManifest(yaml);
+      expect(m.change_type).toBe(ct);
+    }
   });
 
   it('throws when implementation.language is not python', () => {
     const yaml = `
 name: x
 version: 1
+change_type: net_new
 description: d
 inputs: {}
 outputs: {}
@@ -122,6 +143,7 @@ implementation:
     const yaml = `
 name: x
 version: 1
+change_type: net_new
 description: d
 inputs:
   broken:
